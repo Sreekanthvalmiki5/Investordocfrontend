@@ -1,4 +1,4 @@
-export type UserRole = 'analyst' | 'investor' | 'admin';
+export type UserRole = 'admin' | 'user';
 
 export interface AppUser {
   id: string;
@@ -59,8 +59,12 @@ export type DocumentType =
   | 'quarterly_report'
   | 'investor_presentation'
   | 'earnings_call'
+  | 'press_release'
   | 'prospectus'
   | 'filing';
+
+export type DocumentStatus = 'pending' | 'processing' | 'processed' | 'failed';
+export type EmbeddingStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
 export interface DocumentItem {
   id: string;
@@ -145,3 +149,62 @@ export interface ChatSuggestion {
   prompt: string;
   companyId?: string;
 }
+
+// Admin types
+export interface AdminDocument {
+  id: string;
+  name: string;
+  companyId: string;
+  companyName: string;
+  type: DocumentType;
+  quarter?: string;
+  year: number;
+  pageCount: number;
+  sizeMb: number;
+  fileUrl: string;
+  sourceUrl?: string;
+  status: DocumentStatus;
+  embeddingStatus: EmbeddingStatus;
+  uploadedAt: string;
+  uploadedBy?: string;
+}
+
+export interface AdminCompany {
+  id: string;
+  name: string;
+  ticker: string;
+  logoUrl?: string;
+  sector: Sector;
+  industry: string;
+  marketCapCr: number;
+  description: string;
+  color: string;
+  createdAt: string;
+  updatedAt: string;
+  documentCount?: number;
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  avatarUrl?: string;
+  role: UserRole;
+  plan: 'free' | 'pro' | 'enterprise';
+  createdAt: string;
+  lastActiveAt?: string;
+  documentCount?: number;
+  conversationCount?: number;
+}
+
+export interface UploadProgress {
+  fileId: string;
+  fileName: string;
+  progress: number;
+  status: 'pending' | 'uploading' | 'processing' | 'completed' | 'failed';
+  error?: string;
+}
+
+export type ReportType = 'annual_report' | 'quarterly_report' | 'investor_presentation' | 'earnings_call' | 'press_release';

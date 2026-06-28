@@ -12,6 +12,8 @@ import { useDocumentStore } from '@/store/document.store';
 import { useCompanyStore } from '@/store/company.store';
 import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
+import type { AppUser } from '@/types';
 
 export function AppLayout({ children }: { children?: React.ReactNode }) {
   const mobileOpen = useUIStore((s) => s.mobileSidebarOpen);
@@ -62,7 +64,7 @@ export function AppLayout({ children }: { children?: React.ReactNode }) {
       )}
 
       <div className="flex-1 flex flex-col min-w-0 h-full">
-        <Topbar isChatRoute={isChatRoute} onMenu={() => setMobileSidebarOpen(true)} initials={initials} />
+        <Topbar isChatRoute={isChatRoute} onMenu={() => setMobileSidebarOpen(true)} initials={initials} user={user} />
         <main className="flex-1 min-h-0 overflow-hidden">
           {children}
         </main>
@@ -75,10 +77,12 @@ function Topbar({
   onMenu,
   initials,
   isChatRoute,
+  user,
 }: {
   onMenu: () => void;
   initials: string;
   isChatRoute: boolean;
+  user: AppUser | null;
 }) {
   return (
     <header className="h-14 border-b border-border bg-background/80 backdrop-blur-md flex items-center gap-3 px-3 md:px-4 shrink-0 z-20">
@@ -94,8 +98,13 @@ function Topbar({
         <BrandLogo collapsed />
       </Link>
 
-      <div className="hidden md:block text-sm font-medium text-foreground/90">
-        InvestorDocs AI
+      <div className="hidden md:flex items-center gap-2">
+        <span className="text-sm font-medium text-foreground/90">InvestorDocs AI</span>
+        {user?.role === 'admin' && (
+          <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-[10px]">
+            ADMIN
+          </Badge>
+        )}
       </div>
 
       {isChatRoute && (

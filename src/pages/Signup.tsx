@@ -11,10 +11,10 @@ import { Separator } from '@/components/ui/separator';
 export function SignupPage() {
   const navigate = useNavigate();
   const { signUpWithEmail, signInWithGoogle, loading, error, clearError } = useAuthStore();
-  const [firstName, setFirstName] = useState('Arjun');
-  const [lastName, setLastName] = useState('Mehta');
-  const [email, setEmail] = useState('arjun.mehta@investordocs.ai');
-  const [password, setPassword] = useState('demo1234');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();

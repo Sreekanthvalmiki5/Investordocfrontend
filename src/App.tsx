@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/store/auth.store';
 
 import { AppLayout } from '@/layouts/AppLayout';
+import { AdminLayout } from '@/layouts/AdminLayout';
 import { LoginPage } from '@/pages/Login';
 import { SignupPage } from '@/pages/Signup';
 import { ForgotPasswordPage } from '@/pages/ForgotPassword';
@@ -25,7 +26,17 @@ import { BookmarksPage } from '@/pages/Bookmarks';
 import { SettingsPage } from '@/pages/Settings';
 import { ProfilePage } from '@/pages/Profile';
 import { NotFoundPage } from '@/pages/NotFound';
+import { AccessDeniedPage } from '@/pages/AccessDenied';
+import { AdminDashboardPage } from '@/pages/admin/AdminDashboard';
+import { AdminUploadPage } from '@/pages/admin/AdminUpload';
+import { AdminDocumentsPage } from '@/pages/admin/AdminDocuments';
+import { AdminCompaniesPage } from '@/pages/admin/AdminCompanies';
+import { AdminUsersPage } from '@/pages/admin/AdminUsers';
+import { AdminEmbeddingsPage } from '@/pages/admin/AdminEmbeddings';
+import { AdminAnalyticsPage } from '@/pages/admin/AdminAnalytics';
+import { AdminSettingsPage } from '@/pages/admin/AdminSettings';
 import type { ReactNode } from 'react';
+import { ResetPasswordPage } from '@/pages/ResetPassword';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -35,6 +46,13 @@ const queryClient = new QueryClient({
 // Guards read from getState() which is always synchronous and never stale.
 const requireAuth = () => {
   if (!useAuthStore.getState().user) throw redirect({ to: '/' });
+};
+
+// Admin-only guard - checks user role
+const requireAdmin = () => {
+  const user = useAuthStore.getState().user;
+  if (!user) throw redirect({ to: '/' });
+  if (user.role !== 'admin') throw redirect({ to: '/access-denied' });
 };
 
 const guestOnly = () => {
@@ -73,6 +91,12 @@ const forgotRoute = createRoute({
   path: '/forgot-password',
   beforeLoad: guestOnly,
   component: ForgotPasswordPage,
+});
+const resetPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/reset-password',
+  beforeLoad: guestOnly,
+  component: ResetPasswordPage,
 });
 
 const dashboardRoute = createRoute({
@@ -138,6 +162,68 @@ const profileRoute = createRoute({
   component: guard(ProfilePage),
 });
 
+const accessDeniedRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/access-denied',
+  component: AccessDeniedPage,
+});
+
+// Admin routes with protection
+const adminLayoutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/admin',
+  beforeLoad: requireAdmin,
+  component: AdminLayout,
+});
+
+const adminDashboardRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/',
+  component: AdminDashboardPage,
+});
+
+const adminUploadRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/upload',
+  component: AdminUploadPage,
+});
+
+const adminDocumentsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/documents',
+  component: AdminDocumentsPage,
+});
+
+const adminCompaniesRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/companies',
+  component: AdminCompaniesPage,
+});
+
+const adminUsersRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/users',
+  component: AdminUsersPage,
+});
+
+const adminEmbeddingsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/embeddings',
+  component: AdminEmbeddingsPage,
+});
+
+const adminAnalyticsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/analytics',
+  component: AdminAnalyticsPage,
+});
+
+const adminSettingsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/settings',
+  component: AdminSettingsPage,
+});
+
 const notFoundRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '*',
@@ -157,6 +243,18 @@ const routeTree = rootRoute.addChildren([
   bookmarksRoute,
   settingsRoute,
   profileRoute,
+  accessDeniedRoute,
+    resetPasswordRoute,
+  adminLayoutRoute.addChildren([
+    adminDashboardRoute,
+    adminUploadRoute,
+    adminDocumentsRoute,
+    adminCompaniesRoute,
+    adminUsersRoute,
+    adminEmbeddingsRoute,
+    adminAnalyticsRoute,
+    adminSettingsRoute,
+  ]),
   notFoundRoute,
 ]);
 

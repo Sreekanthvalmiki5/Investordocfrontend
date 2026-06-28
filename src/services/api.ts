@@ -72,8 +72,12 @@ export const authService = {
       localStorage.setItem('idf_user', JSON.stringify(user));
       if (token) localStorage.setItem('idf_token', token);
       return user;
-    } catch {
-      return _demoSignIn(email, firstName, lastName);
+    } catch(err:any) {
+          throw new Error(
+      err.response?.data?.detail ||
+      "Registration failed"
+    );
+      
     }
   },
 
@@ -89,6 +93,20 @@ export const authService = {
       console.info('Password reset requested for', email);
     }
   },
+        async resetPassword(
+            token: string,
+            password: string,
+        ): Promise<void> {
+          console.log("Sending token:", token);
+
+            await httpClient.post(
+                "/api/auth/reset-password",
+                {
+                    token,
+                    password,
+                }
+            );
+        },
 
   async signOut(): Promise<void> {
     try { await httpClient.post('/api/auth/logout'); } catch { /* ignore */ }
@@ -388,7 +406,7 @@ function mapApiUser(d: Record<string, unknown>): AppUser {
     firstName,
     lastName,
     fullName: (d.full_name as string | undefined) ?? `${firstName} ${lastName}`.trim(),
-    role: (d.role as AppUser['role']) ?? 'analyst',
+    role: (d.role as AppUser['role']) ?? 'user',
     plan: (d.plan as AppUser['plan']) ?? 'free',
     avatarUrl: (d.avatar_url as string | undefined) ?? (d.avatarUrl as string | undefined),
     createdAt: String(d.created_at ?? d.createdAt ?? new Date().toISOString()),
@@ -453,14 +471,15 @@ async function* _mockStream(
 function _demoSignIn(email: string, firstName?: string, lastName?: string): AppUser {
   const fn = firstName ?? (email.split('@')[0].slice(0, 1).toUpperCase() + email.split('@')[0].slice(1));
   const ln = lastName ?? 'Investor';
+  const isAdmin = email.toLowerCase().includes('admin');
   const user: AppUser = {
     id: 'u_demo_' + Date.now(),
     email,
     firstName: fn,
     lastName: ln,
     fullName: `${fn} ${ln}`,
-    role: 'analyst',
-    plan: 'pro',
+    role: isAdmin ? 'admin' : 'user',
+    plan: isAdmin ? 'enterprise' : 'pro',
     createdAt: new Date().toISOString(),
   };
   localStorage.setItem('idf_user', JSON.stringify(user));

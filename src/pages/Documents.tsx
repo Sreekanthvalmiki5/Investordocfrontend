@@ -161,6 +161,7 @@ function DocumentTypeLabel({ type }: { type: DocumentType }) {
     quarterly_report: { label: 'Quarterly', cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20' },
     investor_presentation: { label: 'Presentation', cls: 'bg-amber-500/15 text-amber-400 border-amber-500/20' },
     earnings_call: { label: 'Earnings Call', cls: 'bg-purple-500/15 text-purple-400 border-purple-500/20' },
+    press_release: { label: 'Press Release', cls: 'bg-red-500/15 text-red-400 border-red-500/20' },
     prospectus: { label: 'Prospectus', cls: 'bg-pink-500/15 text-pink-400 border-pink-500/20' },
     filing: { label: 'Filing', cls: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/20' },
   };

@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 export function ForgotPasswordPage() {
   const navigate = useNavigate();
   const requestReset = authService.requestPasswordReset;
-  const [email, setEmail] = useState('arjun.mehta@investordocs.ai');
+  const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
 

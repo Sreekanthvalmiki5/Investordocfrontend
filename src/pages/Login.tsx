@@ -11,8 +11,8 @@ import { Separator } from '@/components/ui/separator';
 export function LoginPage() {
   const navigate = useNavigate();
   const { signInWithPassword, signInWithGoogle, loading, error, clearError } = useAuthStore();
-  const [email, setEmail] = useState('arjun.mehta@investordocs.ai');
-  const [password, setPassword] = useState('demo1234');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();

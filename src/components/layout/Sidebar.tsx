@@ -33,7 +33,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { LogOut, UserCircle } from 'lucide-react';
+import { LogOut, UserCircle, Shield } from 'lucide-react';
 
 interface NavItem {
   to: string;
@@ -48,12 +48,17 @@ const PRIMARY_NAV: NavItem[] = [
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
 
+const ADMIN_NAV: NavItem[] = [
+  { to: '/admin', label: 'Admin Dashboard', icon: Shield },
+];
+
 export function Sidebar() {
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const conversations = useChatStore((s) => s.conversations);
   const activeId = useChatStore((s) => s.activeConversationId);
   const newConversation = useChatStore((s) => s.newConversation);
+  const user = useAuthStore((s) => s.user);
 
   const recent = conversations
     .filter((c) => !c.archived)
@@ -123,6 +128,17 @@ export function Sidebar() {
             <NavLink key={item.to} {...item} collapsed={collapsed} />
           ))}
         </div>
+
+        {user?.role === 'admin' && (
+          <>
+            <SectionLabel collapsed={collapsed} className="mt-5">Admin</SectionLabel>
+            <div className="space-y-0.5 mt-1">
+              {ADMIN_NAV.map((item) => (
+                <NavLink key={item.to} {...item} collapsed={collapsed} />
+              ))}
+            </div>
+          </>
+        )}
 
         {!collapsed && (
           <div className="mt-5 p-3 rounded-lg bg-gradient-to-br from-primary/10 to-transparent border border-primary/20">
@@ -319,6 +335,14 @@ function SidebarUserFooter({ collapsed }: { collapsed?: boolean }) {
               <Link to="/settings"><span className="flex items-center gap-2"><Settings className="size-4" /> Settings</span></Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            {user?.role === 'admin' && (
+              <>
+                <DropdownMenuItem asChild>
+                  <Link to="/admin"><span className="flex items-center gap-2"><Shield className="size-4" /> Admin Dashboard</span></Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuItem onClick={() => signOut()} className="text-destructive focus:text-destructive">
               <span className="flex items-center gap-2"><LogOut className="size-4" /> Sign out</span>
             </DropdownMenuItem>
