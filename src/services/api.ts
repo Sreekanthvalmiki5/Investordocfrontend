@@ -48,13 +48,22 @@ export const authService = {
   async signInWithPassword(email: string, password: string): Promise<AppUser> {
     try {
       const { data } = await httpClient.post('/api/auth/login', { email, password });
-      const user: AppUser = mapApiUser(data.user ?? data);
-      const token: string = data.access_token ?? data.token ?? '';
+      const payload = data.data ?? data;
+      const user: AppUser = mapApiUser(payload.user ?? payload);
+      const token: string = payload.access_token ?? payload.token ?? '';
       localStorage.setItem('idf_user', JSON.stringify(user));
       if (token) localStorage.setItem('idf_token', token);
       return user;
-    } catch {
-      // Fallback: build a local demo user so the UI still works without auth backend
+    } catch (err: any) {
+      // If server responded with a non-404 error (e.g. 401 Unauthorized), propagate it
+      if (err.response && err.response.status !== 404) {
+        throw new Error(
+          err.response.data?.detail ||
+          err.response.data?.message ||
+          'Invalid email or password'
+        );
+      }
+      // Fallback: build a local demo user so the UI still works without auth backend (e.g. server down or returns 404)
       return _demoSignIn(email);
     }
   },
@@ -67,17 +76,17 @@ export const authService = {
         first_name: firstName,
         last_name: lastName,
       });
-      const user: AppUser = mapApiUser(data.user ?? data);
-      const token: string = data.access_token ?? data.token ?? '';
+      const payload = data.data ?? data;
+      const user: AppUser = mapApiUser(payload.user ?? payload);
+      const token: string = payload.access_token ?? payload.token ?? '';
       localStorage.setItem('idf_user', JSON.stringify(user));
       if (token) localStorage.setItem('idf_token', token);
       return user;
     } catch(err:any) {
-          throw new Error(
-      err.response?.data?.detail ||
-      "Registration failed"
-    );
-      
+      throw new Error(
+        err.response?.data?.detail ||
+        "Registration failed"
+      );
     }
   },
 
