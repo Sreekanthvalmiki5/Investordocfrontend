@@ -19,12 +19,28 @@ export function SignupPage() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     await signUpWithEmail(email, password, firstName, lastName);
-    if (useAuthStore.getState().user) navigate({ to: '/dashboard' });
+    const user = useAuthStore.getState().user;
+
+    if (user) {
+      console.log(user.role);
+      if (user.role === 'admin') {
+        navigate({ to: '/admin' });
+      } else {
+        navigate({ to: '/dashboard' });
+      }
+    }
   };
 
   const google = async () => {
     await signInWithGoogle();
-    if (useAuthStore.getState().user) navigate({ to: '/dashboard' });
+    const user = useAuthStore.getState().user;
+    if (user) {
+      if (user.role === 'admin') {
+        navigate({ to: '/admin' });
+      } else {
+        navigate({ to: '/dashboard' });
+      }
+    }
   };
 
   return (

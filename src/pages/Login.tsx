@@ -17,12 +17,28 @@ export function LoginPage() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     await signInWithPassword(email, password);
-    if (useAuthStore.getState().user) navigate({ to: '/dashboard' });
+    const user = useAuthStore.getState().user;
+    console.log("Logged in user:", user);
+    if (user) {
+      if (user.role === 'admin') {
+        navigate({ to: '/admin' });
+      } else {
+        navigate({ to: '/dashboard' });
+      }
+    }
   };
 
   const google = async () => {
     await signInWithGoogle();
-    if (useAuthStore.getState().user) navigate({ to: '/dashboard' });
+    const user = useAuthStore.getState().user;
+    console.log("Logged in user (Google):", user);
+    if (user) {
+      if (user.role === 'admin') {
+        navigate({ to: '/admin' });
+      } else {
+        navigate({ to: '/dashboard' });
+      }
+    }
   };
 
   return (
