@@ -70,7 +70,7 @@ export const authService = {
 
   async signUpWithEmail(email: string, password: string, firstName: string, lastName: string): Promise<AppUser> {
     try {
-      const { data } = await httpClient.post('/api/auth/register', {
+      const response = await httpClient.post('/api/auth/register', {
         email,
         password,
         first_name: firstName,
@@ -306,6 +306,8 @@ export const companyService = {
 };
 
 export const documentService = {
+
+  
   async list(): Promise<DocumentItem[]> {
     return DOCUMENTS;
   },
@@ -329,6 +331,7 @@ export const documentService = {
       return mq && mc && mt && my && mq2;
     });
   },
+
 };
 
 export const insightService = {

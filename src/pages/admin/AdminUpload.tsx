@@ -5,6 +5,7 @@ import { useCompanyStore } from '@/store/company.store';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { httpClient } from "@/services/api";
 import {
   Select,
   SelectContent,
@@ -36,8 +37,10 @@ interface FileWithPreview {
 
 export function AdminUploadPage() {
   const companies = useCompanyStore((s) => s.companies);
-  const uploadDocuments = useAdminStore((s) => s.uploadDocuments);
+  // const uploadDocuments = useAdminStore((s) => s.uploadDocuments);
   const uploadTasks = useAdminStore((s) => s.uploadTasks);
+  // const formData = new FormData();
+
 
   const [files, setFiles] = useState<FileWithPreview[]>([]);
   const [companyId, setCompanyId] = useState('');
@@ -87,26 +90,61 @@ export function AdminUploadPage() {
     setFiles((prev) => prev.filter((f) => f.id !== id));
   };
 
-  const handleUpload = () => {
-    if (files.length === 0 || !companyId) return;
+  const handleUpload = async () => {
+  if (files.length === 0) {
+    alert("Please select at least one PDF.");
+    return;
+  }
 
-    setIsUploading(true);
+  if (!companyId) {
+    alert("Please select a company.");
+    return;
+  }
 
-    uploadDocuments({
-      files: files.map((f) => f.file),
-      companyId,
-      reportType,
-      year: parseInt(year),
-      quarter: quarter || undefined,
+  setIsUploading(true);
+
+  try {
+    const formData = new FormData();
+
+    files.forEach((f) => {
+      formData.append("files", f.file);
     });
 
-    // Simulate completion after delay
-    setTimeout(() => {
-      setIsUploading(false);
-      setFiles([]);
-    }, 3000);
-  };
+    formData.append("company_id", companyId);
+    formData.append("report_type", reportType);
+    formData.append("year", year);
 
+    if (quarter) {
+      formData.append("quarter", quarter);
+    }
+
+    const response = await httpClient.post(
+      "/api/admin/upload",
+      formData,
+      {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      }
+    );
+
+    console.log(response.data);
+
+    alert("Documents uploaded successfully.");
+
+    setFiles([]);
+    setQuarter("");
+  } catch (err: any) {
+    console.error(err);
+
+    alert(
+      err?.response?.data?.detail ??
+        "Failed to upload documents."
+    );
+  } finally {
+    setIsUploading(false);
+  }
+};
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
