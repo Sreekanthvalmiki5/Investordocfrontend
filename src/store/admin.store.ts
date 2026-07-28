@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import type { AdminUser, AdminDocument, AdminCompany, UploadProgress, ReportType } from '@/types';
-import { ADMIN_USERS, ADMIN_DOCUMENTS, COMPANIES } from '@/services/mockData';
+import type { AdminUser, AdminDocument, AdminCompany, UploadProgress, ReportType, DocumentItem } from '@/types';
+import { ADMIN_DOCUMENTS, COMPANIES as MOCK_COMPANIES } from '@/services/mockData';
+import { companyService, documentService, userService } from '@/services/api';
 
 interface UploadTask {
   id: string;
@@ -27,7 +28,22 @@ interface AdminState {
     storageUsedGb: number;
   };
   loading: boolean;
+  /** User list pagination & filters (server-side) */
+  usersPage: number;
+  usersLimit: number;
+  usersTotal: number;
+  loadingUsers: boolean;
+  usersSearch: string;
+  usersRoleFilter: string;
+  usersPlanFilter: string;
+  usersSortBy: string;
+  usersSortOrder: string;
   init: () => void;
+  loadUsers: () => Promise<void>;
+  setUsersSearch: (search: string) => void;
+  setUsersRoleFilter: (role: string) => void;
+  setUsersPlanFilter: (plan: string) => void;
+  setUsersPage: (page: number) => void;
   uploadDocuments: (task: Omit<UploadTask, 'id' | 'progress' | 'status'>) => string;
   updateUploadProgress: (taskId: string, progress: UploadProgress[]) => void;
   deleteDocument: (id: string) => void;
@@ -54,36 +70,143 @@ export const useAdminStore = create<AdminState>((set, get) => ({
     storageUsedGb: 0,
   },
   loading: false,
+  usersPage: 1,
+  usersLimit: 20,
+  usersTotal: 0,
+  loadingUsers: false,
+  usersSearch: '',
+  usersRoleFilter: 'all',
+  usersPlanFilter: 'all',
+  usersSortBy: '',
+  usersSortOrder: '',
 
-  init: () => {
-    const companies: AdminCompany[] = COMPANIES.map((c) => ({
-      id: c.id,
-      name: c.name,
-      ticker: c.ticker,
-      logoUrl: c.logoUrl,
-      sector: c.sector,
-      industry: c.industry,
-      marketCapCr: c.marketCapCr,
-      description: c.description,
-      color: c.color,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      documentCount: c.totalReports,
-    }));
+  init: async () => {
+    // Load companies from API with populated mock fallback
+    let apiCompanies: AdminCompany[] = [];
+    try {
+      const fetched = await companyService.list();
+      apiCompanies = fetched.map((c) => ({
+        id: c.id,
+        name: c.name,
+        ticker: c.ticker,
+        logoUrl: c.logoUrl,
+        sector: c.sector,
+        industry: c.industry,
+        marketCapCr: c.marketCapCr,
+        description: c.description,
+        color: c.color,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        documentCount: c.totalReports,
+      }));
+    } catch {
+      // Fallback: convert populated COMPANIES mock data to AdminCompany format
+      apiCompanies = MOCK_COMPANIES.map((c) => ({
+        id: c.id,
+        name: c.name,
+        ticker: c.ticker,
+        sector: c.sector,
+        industry: c.industry,
+        marketCapCr: c.marketCapCr,
+        description: c.description,
+        color: c.color,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        documentCount: c.totalReports,
+      }));
+    }
+
+    // Load documents from API with populated mock fallback
+    let apiDocuments: AdminDocument[] = [];
+    try {
+      const result = await documentService.filter({});
+      const docs = result.items;
+      apiDocuments = docs.map((d) => ({
+        id: d.id,
+        name: d.name,
+        companyId: d.companyId,
+        companyName: d.companyName,
+        type: d.type,
+        quarter: d.quarter,
+        year: d.year,
+        pageCount: d.pageCount,
+        sizeMb: d.sizeMb,
+        fileUrl: d.fileUrl,
+        sourceUrl: d.sourceUrl,
+        status: 'processed' as const,
+        embeddingStatus: 'completed' as const,
+        uploadedAt: d.uploadedAt,
+      }));
+    } catch {
+      // Use populated ADMIN_DOCUMENTS mock data as fallback
+      apiDocuments = ADMIN_DOCUMENTS;
+    }
+
+    const totalDocs = apiDocuments.length;
+    const totalCo = apiCompanies.length;
 
     set({
-      users: ADMIN_USERS,
-      documents: ADMIN_DOCUMENTS,
-      companies,
+      documents: apiDocuments,
+      companies: apiCompanies,
       stats: {
-        totalDocuments: ADMIN_DOCUMENTS.length,
-        totalCompanies: companies.length,
-        totalUsers: ADMIN_USERS.length,
+        totalDocuments: totalDocs,
+        totalCompanies: totalCo,
+        totalUsers: 0,
         processedToday: 12,
-        embeddingQueue: 3,
+        embeddingQueue: apiDocuments.filter((d) => d.embeddingStatus === 'processing').length,
         storageUsedGb: 156.8,
       },
     });
+
+    // Load users from API
+    get().loadUsers();
+  },
+
+  loadUsers: async () => {
+    const state = get();
+    set({ loadingUsers: true });
+    try {
+      const result = await userService.listUsers({
+        page: state.usersPage,
+        limit: state.usersLimit,
+        search: state.usersSearch,
+        role: state.usersRoleFilter,
+        plan: state.usersPlanFilter,
+        sort_by: state.usersSortBy,
+        sort_order: state.usersSortOrder,
+      });
+      set({
+        users: result.items,
+        usersTotal: result.total,
+        stats: { ...get().stats, totalUsers: result.total },
+      });
+    } catch (error) {
+      console.error('Failed to load users:', error);
+      // Don't crash the page — keep existing users and show empty
+      set({ users: [], usersTotal: 0 });
+    } finally {
+      set({ loadingUsers: false });
+    }
+  },
+
+  setUsersSearch: (search) => {
+    set({ usersSearch: search, usersPage: 1 });
+    get().loadUsers();
+  },
+
+  setUsersRoleFilter: (role) => {
+    set({ usersRoleFilter: role, usersPage: 1 });
+    get().loadUsers();
+  },
+
+  setUsersPlanFilter: (plan) => {
+    set({ usersPlanFilter: plan, usersPage: 1 });
+    get().loadUsers();
+  },
+
+  setUsersPage: (page) => {
+    set({ usersPage: page });
+    get().loadUsers();
   },
 
   uploadDocuments: (task) => {
@@ -168,25 +291,54 @@ export const useAdminStore = create<AdminState>((set, get) => ({
     }));
   },
 
-  updateUser: (id, updates) => {
+  updateUser: async (id, updates) => {
+    // Optimistic local update
     set((state) => ({
       users: state.users.map((u) => (u.id === id ? { ...u, ...updates } : u)),
     }));
+
+    try {
+      await userService.updateUser(id, updates);
+    } catch (error) {
+      console.error('Failed to update user via API:', error);
+      // Re-fetch to restore correct state
+      get().loadUsers();
+      throw error;
+    }
   },
 
-  deleteUser: (id) => {
+  deleteUser: async (id) => {
+    // Optimistic removal
     set((state) => ({
       users: state.users.filter((u) => u.id !== id),
-      stats: { ...state.stats, totalUsers: state.stats.totalUsers - 1 },
+      stats: { ...state.stats, totalUsers: Math.max(0, state.stats.totalUsers - 1) },
     }));
+
+    try {
+      await userService.deleteUser(id);
+    } catch (error) {
+      console.error('Failed to delete user via API:', error);
+      // Re-fetch to restore correct state
+      get().loadUsers();
+      throw error;
+    }
   },
 
-  addCompany: (company) => {
+  addCompany: async (company) => {
+    const created = await companyService.create(company);
     const newCompany: AdminCompany = {
-      ...company,
-      id: `c-${Date.now()}`,
+      id: created.id,
+      name: created.name,
+      ticker: created.ticker,
+      logoUrl: created.logoUrl,
+      sector: created.sector,
+      industry: created.industry,
+      marketCapCr: created.marketCapCr,
+      description: created.description,
+      color: created.color,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      documentCount: created.totalReports,
     };
     set((state) => ({
       companies: [...state.companies, newCompany],
@@ -194,18 +346,70 @@ export const useAdminStore = create<AdminState>((set, get) => ({
     }));
   },
 
-  updateCompany: (id, updates) => {
+  updateCompany: async (id, updates) => {
+    // Optimistic local update
     set((state) => ({
       companies: state.companies.map((c) =>
         c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c
       ),
     }));
+
+    try {
+      await companyService.update(id, updates);
+    } catch (error) {
+      console.error('Failed to update company via API:', error);
+      // Re-fetch companies to restore correct state
+      const apiCompanies = await companyService.list();
+      const companies: AdminCompany[] = apiCompanies.map((c) => ({
+        id: c.id,
+        name: c.name,
+        ticker: c.ticker,
+        logoUrl: c.logoUrl,
+        sector: c.sector,
+        industry: c.industry,
+        marketCapCr: c.marketCapCr,
+        description: c.description,
+        color: c.color,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        documentCount: c.totalReports,
+      }));
+      set({ companies });
+      // Re-throw so the UI can show an error toast
+      throw error;
+    }
   },
 
-  deleteCompany: (id) => {
+  deleteCompany: async (id) => {
+    // Optimistic removal
     set((state) => ({
       companies: state.companies.filter((c) => c.id !== id),
       stats: { ...state.stats, totalCompanies: state.stats.totalCompanies - 1 },
     }));
+
+    try {
+      await companyService.delete(id);
+    } catch (error) {
+      console.error('Failed to delete company via API:', error);
+      // Re-fetch to restore correct state
+      const apiCompanies = await companyService.list();
+      const companies: AdminCompany[] = apiCompanies.map((c) => ({
+        id: c.id,
+        name: c.name,
+        ticker: c.ticker,
+        logoUrl: c.logoUrl,
+        sector: c.sector,
+        industry: c.industry,
+        marketCapCr: c.marketCapCr,
+        description: c.description,
+        color: c.color,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        documentCount: c.totalReports,
+      }));
+      set({ companies });
+      // Re-throw so the UI can show an error toast
+      throw error;
+    }
   },
 }));

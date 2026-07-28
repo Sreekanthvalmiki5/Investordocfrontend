@@ -5,7 +5,7 @@ import { useCompanyStore } from '@/store/company.store';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { httpClient } from "@/services/api";
+import { documentService } from "@/services/api";
 import {
   Select,
   SelectContent,
@@ -26,7 +26,7 @@ const REPORT_TYPES: { value: ReportType; label: string }[] = [
 ];
 
 const QUARTERS = ['Q1', 'Q2', 'Q3', 'Q4'];
-const YEARS = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i);
+const YEARS = Array.from({ length: 26 }, (_, i) => 2025 + i);
 
 interface FileWithPreview {
   id: string;
@@ -91,60 +91,47 @@ export function AdminUploadPage() {
   };
 
   const handleUpload = async () => {
-  if (files.length === 0) {
-    alert("Please select at least one PDF.");
-    return;
-  }
-
-  if (!companyId) {
-    alert("Please select a company.");
-    return;
-  }
-
-  setIsUploading(true);
-
-  try {
-    const formData = new FormData();
-
-    files.forEach((f) => {
-      formData.append("files", f.file);
-    });
-
-    formData.append("company_id", companyId);
-    formData.append("report_type", reportType);
-    formData.append("year", year);
-
-    if (quarter) {
-      formData.append("quarter", quarter);
+    if (files.length === 0) {
+      alert("Please select at least one PDF.");
+      return;
     }
 
-    const response = await httpClient.post(
-      "/api/admin/upload",
-      formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
+    if (!companyId) {
+      alert("Please select a company.");
+      return;
+    }
+
+    setIsUploading(true);
+
+    try {
+      const formData = new FormData();
+
+      // Backend expects a single file via POST /api/documents/upload
+      // Upload files sequentially for proper progress tracking
+      for (const f of files) {
+        const fd = new FormData();
+        fd.append("file", f.file);
+        fd.append("company_id", companyId);
+        fd.append("report_type", reportType);
+        fd.append("year", year);
+        if (quarter) fd.append("quarter", quarter);
+
+        await documentService.upload(fd);
       }
-    );
 
-    console.log(response.data);
-
-    alert("Documents uploaded successfully.");
-
-    setFiles([]);
-    setQuarter("");
-  } catch (err: any) {
-    console.error(err);
-
-    alert(
-      err?.response?.data?.detail ??
-        "Failed to upload documents."
-    );
-  } finally {
-    setIsUploading(false);
-  }
-};
+      alert(`All ${files.length} file(s) uploaded successfully.`);
+      setFiles([]);
+      setQuarter('');
+    } catch (err: any) {
+      console.error(err);
+      alert(
+        err?.response?.data?.detail ??
+          "Failed to upload documents."
+      );
+    } finally {
+      setIsUploading(false);
+    }
+  };
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;

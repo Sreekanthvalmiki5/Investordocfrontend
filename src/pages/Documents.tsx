@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import {
   Search,
   LayoutGrid,
@@ -25,7 +26,8 @@ import {
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useDocumentStore } from '@/store/document.store';
-import { COMPANIES } from '@/services/mockData';
+import { useCompanyStore } from '@/store/company.store';
+import { documentService } from '@/services/api';
 import { cn } from '@/lib/utils';
 import type { DocumentItem, DocumentType } from '@/types';
 
@@ -52,6 +54,7 @@ export function DocumentsPage() {
     view,
     setFilter,
   } = useDocumentStore();
+  const companies = useCompanyStore((s) => s.companies);
 
   return (
     <div className="h-full flex flex-col">
@@ -78,7 +81,7 @@ export function DocumentsPage() {
                 <SelectTrigger className="h-10 w-full md:w-44"><SelectValue placeholder="Company" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All companies</SelectItem>
-                  {COMPANIES.map((c) => (
+                  {companies.map((c) => (
                     <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -170,6 +173,14 @@ function DocumentTypeLabel({ type }: { type: DocumentType }) {
 }
 
 function DocumentCard({ doc }: { doc: DocumentItem }) {
+  const handleDownload = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const result = await documentService.download(doc.id);
+    if (result?.url) {
+      window.open(result.url, '_blank');
+    }
+  }, [doc.id]);
+
   return (
     <div className="group p-4 rounded-xl bg-card border border-border hover:border-primary/40 transition">
       <div className="flex items-start gap-3">
@@ -200,7 +211,7 @@ function DocumentCard({ doc }: { doc: DocumentItem }) {
         <Button asChild size="sm" className="h-8 flex-1 gap-1.5">
           <Link to="/documents/$documentId" params={{ documentId: doc.id }}><Eye className="size-3.5" /> View</Link>
         </Button>
-        <Button variant="outline" size="sm" className="h-8 gap-1.5" title="Download">
+        <Button variant="outline" size="sm" className="h-8 gap-1.5" title="Download" onClick={handleDownload}>
           <Download className="size-3.5" />
         </Button>
       </div>
@@ -209,6 +220,13 @@ function DocumentCard({ doc }: { doc: DocumentItem }) {
 }
 
 function DocumentRow({ doc }: { doc: DocumentItem }) {
+  const handleDownload = useCallback(async () => {
+    const result = await documentService.download(doc.id);
+    if (result?.url) {
+      window.open(result.url, '_blank');
+    }
+  }, [doc.id]);
+
   return (
     <div className="flex items-center gap-3 p-3 rounded-lg bg-card border border-border hover:border-primary/40 transition group">
       <div className="size-9 rounded-lg bg-primary/10 text-primary grid place-items-center shrink-0">
@@ -227,9 +245,14 @@ function DocumentRow({ doc }: { doc: DocumentItem }) {
       <div className="hidden sm:block text-[11px] text-muted-foreground w-24 text-right">
         {new Date(doc.uploadedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
       </div>
-      <Button asChild size="sm" variant="outline" className="h-8 gap-1.5">
-        <Link to="/documents/$documentId" params={{ documentId: doc.id }}><Eye className="size-3.5" /> Open</Link>
-      </Button>
+      <div className="flex items-center gap-1.5">
+        <Button asChild size="sm" variant="outline" className="h-8 gap-1.5">
+          <Link to="/documents/$documentId" params={{ documentId: doc.id }}><Eye className="size-3.5" /> Open</Link>
+        </Button>
+        <Button variant="outline" size="sm" className="h-8 gap-1.5" title="Download" onClick={handleDownload}>
+          <Download className="size-3.5" />
+        </Button>
+      </div>
     </div>
   );
 }

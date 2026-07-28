@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { Paperclip, ArrowUp, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useChatStore } from '@/store/chat.store';
@@ -9,6 +10,7 @@ export function ChatInput({ showSuggestions: _showSuggestions }: { showSuggestio
   const streaming = useChatStore((s) => s.streaming);
   const sendMessage = useChatStore((s) => s.sendMessage);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const navigate = useNavigate();
 
   // Resize textarea to fit content whenever value changes
   useEffect(() => {
@@ -22,7 +24,10 @@ export function ChatInput({ showSuggestions: _showSuggestions }: { showSuggestio
     const text = value.trim();
     if (!text || streaming) return;
     setValue('');
-    void sendMessage(text);
+    // When a new conversation is created, immediately navigate to it
+    void sendMessage(text, (newId) => {
+      navigate({ to: '/chat/$chatId', params: { chatId: newId } });
+    });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

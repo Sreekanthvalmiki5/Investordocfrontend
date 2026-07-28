@@ -8,6 +8,7 @@ import {
   SUGGESTIONS,
 } from './mockData';
 import type {
+  AdminUser,
   AiInsight,
   AiModel,
   AppUser,
@@ -17,6 +18,7 @@ import type {
   Conversation,
   DocumentItem,
   ModelOption,
+  SourceCitation,
 } from '@/types';
 
 // ─── HTTP client ─────────────────────────────────────────────────────────────
@@ -27,6 +29,11 @@ export const httpClient = axios.create({
   baseURL: API_URL,
   timeout: 30000,
 });
+interface ApiResponse<T> {
+  success: boolean;
+  message: string;
+  data: T;
+}
 
 httpClient.interceptors.request.use((config) => {
   const token = localStorage.getItem('idf_token');
@@ -70,7 +77,7 @@ export const authService = {
 
   async signUpWithEmail(email: string, password: string, firstName: string, lastName: string): Promise<AppUser> {
     try {
-      const response = await httpClient.post('/api/auth/register', {
+      const { data } = await httpClient.post('/api/auth/register', {
         email,
         password,
         first_name: firstName,
@@ -145,21 +152,26 @@ export const authService = {
 export const chatService = {
   async listConversations(): Promise<Conversation[]> {
     try {
-      const { data } = await httpClient.get<ApiConversation[]>('/api/conversations');
-      return data.map(mapApiConversation);
+      const { data } = await httpClient.get<{ success: boolean; items?: ApiConversation[]; data?: ApiConversation[] }>('/api/conversations');
+      // Backend wraps list responses in { success, page, limit, total, items: [...] }
+      const list: ApiConversation[] = data.items ?? data.data ?? (Array.isArray(data) ? data : []);
+      return list.map(mapApiConversation);
     } catch {
       return [];
     }
   },
 
-  async createConversation(title: string): Promise<Conversation> {
-    const { data } = await httpClient.post<ApiConversation>('/api/conversations', { title });
-    return mapApiConversation(data);
-  },
+async createConversation(title: string): Promise<Conversation> {
+  const { data } = await httpClient.post<ApiResponse<ApiConversation>>(
+    "/api/conversations",
+    { title }
+  );
 
+  return mapApiConversation(data.data);
+},
   async updateConversation(id: string, patch: { title?: string }): Promise<Conversation> {
-    const { data } = await httpClient.patch<ApiConversation>(`/api/conversations/${id}`, patch);
-    return mapApiConversation(data);
+    const { data } = await httpClient.patch<ApiResponse<ApiConversation>>(`/api/conversations/${id}`, patch);
+   return mapApiConversation(data.data);
   },
 
   async deleteConversation(id: string): Promise<void> {
@@ -168,10 +180,28 @@ export const chatService = {
 
   async getMessages(conversationId: string): Promise<ChatMessage[]> {
     try {
-      const { data } = await httpClient.get<ApiMessage[]>(
-        `/api/conversations/${conversationId}/messages`
+      const { data } = await httpClient.get<unknown>(
+        `/api/messages/conversation/${conversationId}`
       );
-      return data.map(mapApiMessage);
+      // Handle multiple response shapes:
+      //   { success, items: [...] }   — paginated list format
+      //   { success, data: [...] }    — wrapped array format
+      //   { messages: [...] }         — keyed by "messages"
+      //   [ ... ]                     — bare array
+      const raw = data as Record<string, unknown>;
+      let list: ApiMessageResponse[] | undefined;
+
+      if (Array.isArray(data)) {
+        list = data as ApiMessageResponse[];
+      } else if (Array.isArray(raw?.items)) {
+        list = raw.items as ApiMessageResponse[];
+      } else if (Array.isArray(raw?.data)) {
+        list = raw.data as ApiMessageResponse[];
+      } else if (Array.isArray(raw?.messages)) {
+        list = raw.messages as ApiMessageResponse[];
+      }
+
+      return (list ?? []).map(mapApiMessageResponse);
     } catch {
       return [];
     }
@@ -198,7 +228,8 @@ export const chatService = {
     }
 
     try {
-      const response = await fetch(`${API_URL}/api/conversations/${conversationId}/messages`, {
+      console.log('🚀 Sending chat request to:', `${API_URL}/api/chat`);
+      const response = await fetch(`${API_URL}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -206,17 +237,30 @@ export const chatService = {
             ? { Authorization: `Bearer ${localStorage.getItem('idf_token')}` }
             : {}),
         },
-        body: JSON.stringify({ content: prompt, model, company_id: companyId }),
+        body: JSON.stringify({ message: prompt, model, company_id: companyId, conversation_id: conversationId }),
       });
 
-      if (!response.ok || !response.body) {
+      console.log('📡 Response status:', response.status, 'ok:', response.ok, 'hasBody:', !!response.body);
+
+      if (!response.ok) {
+        console.error('❌ Response not ok, status:', response.status);
+        const errorText = await response.text();
+        console.error('❌ Error response:', errorText);
+        yield* _mockStream(prompt, companyId);
+        return;
+      }
+
+      if (!response.body) {
+        console.error('❌ No response body');
         yield* _mockStream(prompt, companyId);
         return;
       }
 
       const contentType = response.headers.get('content-type') ?? '';
+      console.log('📝 Content-Type:', contentType);
 
       if (contentType.includes('text/event-stream')) {
+        console.log('📨 Streaming SSE response');
         // SSE streaming
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -242,17 +286,49 @@ export const chatService = {
         }
         yield { delta: '', done: true, sources };
       } else {
+        console.log('📄 Parsing JSON response');
         // Plain JSON response — yield full text at once
         const json = await response.json();
-        const text: string = json.content ?? json.message ?? json.response ?? '';
+        console.log('✅ Parsed JSON:', JSON.stringify(json).slice(0, 200) + '...');
+        
+        // Handle OpenAI/OpenRouter response format
+        let text: string = '';
+        if (json?.choices?.[0]?.message) {
+          const message = json.choices[0].message;
+          // Try content first, then reasoning (for extended thinking models)
+          text = message.content ?? message.reasoning ?? '';
+          console.log('✨ Extracted text from choices[0].message, length:', text.length);
+        } else {
+          // Fallback to other formats
+          text =
+            json?.data?.content ??
+            json.content ??
+            json.message ??
+            json.response ??
+            '';
+          console.log('⚠️ Using fallback format, text length:', text.length);
+        }
+        
+        if (!text) {
+          console.error('❌ No text extracted from response');
+          console.error('Full response:', JSON.stringify(json));
+        }
+
+        const sources = json?.data?.sources ?? json?.sources;
+        // Split into tokens preserving ALL whitespace (newlines, spaces, etc.)
+        // so markdown structure is maintained during streaming.
         const tokens = text.split(/(\s+)/);
+        console.log('📊 Token count:', tokens.length);
+        
         for (const token of tokens) {
           await new Promise((r) => setTimeout(r, 18 + Math.random() * 22));
           yield { delta: token, done: false };
         }
-        yield { delta: '', done: true, sources: json.sources };
+        yield { delta: '', done: true, sources };
       }
-    } catch {
+    } catch (error) {
+      console.error('🔴 Error in streamResponse:', error);
+      console.error('Stack:', error instanceof Error ? error.stack : '');
       yield* _mockStream(prompt, companyId);
     }
   },
@@ -263,8 +339,10 @@ export const chatService = {
 export const bookmarkService = {
   async list(): Promise<Bookmark[]> {
     try {
-      const { data } = await httpClient.get<ApiBookmark[]>('/api/bookmarks');
-      return data.map(mapApiBookmark);
+      const { data } = await httpClient.get<{ success: boolean; items?: ApiBookmark[]; data?: ApiBookmark[] }>('/api/bookmarks');
+      // Backend wraps list responses in { success, page, limit, total, items: [...] }
+      const list: ApiBookmark[] = data.items ?? data.data ?? (Array.isArray(data) ? data : []);
+      return list.map(mapApiBookmark);
     } catch {
       return BOOKMARKS;
     }
@@ -286,53 +364,369 @@ export const bookmarkService = {
   },
 };
 
-// ─── Company / document / insight services (mock only) ───────────────────────
+// ─── User service ───────────────────────────────────────────────────────────
+
+export interface UserListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  role?: string;
+  plan?: string;
+  sort_by?: string;
+  sort_order?: string;
+}
+
+export interface UserListResponse {
+  items: AdminUser[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export const userService = {
+  async listUsers(params: UserListParams = {}): Promise<UserListResponse> {
+    const queryParams: Record<string, string | number> = {};
+    if (params.page) queryParams.page = params.page;
+    if (params.limit) queryParams.limit = params.limit;
+    if (params.search) queryParams.search = params.search;
+    if (params.role && params.role !== 'all') queryParams.role = params.role;
+    if (params.plan && params.plan !== 'all') queryParams.plan = params.plan;
+    if (params.sort_by) queryParams.sort_by = params.sort_by;
+    if (params.sort_order) queryParams.sort_order = params.sort_order;
+
+    const { data } = await httpClient.get<unknown>('/api/users', { params: queryParams });
+    return normalizeUserListResponse(data);
+  },
+
+  async getUser(id: string): Promise<AdminUser> {
+    const { data } = await httpClient.get<unknown>(`/api/users/${id}`);
+    return normalizeUserPayload(data);
+  },
+
+  async updateUser(id: string, updates: Partial<AdminUser>): Promise<AdminUser> {
+    const body = toSnakeCase(updates as unknown as Record<string, unknown>);
+    const { data } = await httpClient.patch<unknown>(`/api/users/${id}`, body);
+    return normalizeUserPayload(data);
+  },
+
+  async deleteUser(id: string): Promise<void> {
+    await httpClient.delete(`/api/users/${id}`);
+  },
+};
+
+function normalizeUserListResponse(payload: unknown): UserListResponse {
+  if (!payload || typeof payload !== 'object') {
+    return { items: [], total: 0, page: 1, limit: 20 };
+  }
+  const rec = payload as Record<string, unknown>;
+  const wrapper = rec.data && typeof rec.data === 'object' ? (rec.data as Record<string, unknown>) : rec;
+  const items = wrapper.items ?? wrapper.users ?? wrapper.results ?? [];
+  const list: AdminUser[] = Array.isArray(items) ? items.map((i: unknown) => normalizeUserPayload(i)).filter(Boolean) as AdminUser[] : [];
+  return {
+    items: list,
+    total: toNumber(wrapper.total ?? wrapper.count ?? list.length),
+    page: toNumber(wrapper.page ?? 1),
+    limit: toNumber(wrapper.limit ?? 20),
+  };
+}
+
+function normalizeUserPayload(payload: unknown): AdminUser {
+  const rec = (payload && typeof payload === 'object')
+    ? ((payload as Record<string, unknown>).data && typeof (payload as Record<string, unknown>).data === 'object'
+        ? (payload as Record<string, unknown>).data as Record<string, unknown>
+        : (payload as Record<string, unknown>))
+    : {};
+  const id = String(rec.id ?? '');
+  const firstName = String(rec.firstName ?? rec.first_name ?? '');
+  const lastName = String(rec.lastName ?? rec.last_name ?? '');
+  return {
+    id,
+    email: String(rec.email ?? ''),
+    firstName,
+    lastName,
+    fullName: String(rec.fullName ?? rec.full_name ?? `${firstName} ${lastName}`.trim()),
+    avatarUrl: rec.avatarUrl as string | undefined ?? rec.avatar_url as string | undefined,
+    role: (rec.role as AdminUser['role']) ?? 'user',
+    plan: (rec.plan as AdminUser['plan']) ?? 'free',
+    createdAt: String(rec.createdAt ?? rec.created_at ?? rec.createdAt ?? new Date().toISOString()),
+    lastActiveAt: rec.lastActiveAt as string | undefined ?? rec.last_active_at as string | undefined,
+    documentCount: toNumber(rec.documentCount ?? rec.document_count ?? 0),
+    conversationCount: toNumber(rec.conversationCount ?? rec.conversation_count ?? 0),
+  };
+}
+
+// ─── Company / document / insight services ────────────────────────────────────
 
 export const companyService = {
   async list(): Promise<Company[]> {
-    return COMPANIES;
+    try {
+      const { data } = await httpClient.get<unknown>('/api/companies');
+      return normalizeCompanyListResponse(data);
+    } catch {
+      return COMPANIES;
+    }
   },
+
   async get(id: string): Promise<Company | undefined> {
-    return COMPANIES.find((c) => c.id === id);
+    try {
+      const { data } = await httpClient.get<unknown>(`/api/companies/${id}`);
+      return normalizeCompanyPayload(data);
+    } catch {
+      return COMPANIES.find((c) => c.id === id);
+    }
   },
+
   async searchCompanies(query: string, sector?: Company['sector'] | 'all'): Promise<Company[]> {
-    const q = query.trim().toLowerCase();
-    return COMPANIES.filter((c) => {
-      const matchesQuery = !q || c.name.toLowerCase().includes(q) || c.ticker.toLowerCase().includes(q);
-      const matchesSector = !sector || sector === 'all' || c.sector === sector;
-      return matchesQuery && matchesSector;
-    });
+    try {
+      const params: Record<string, string> = {};
+      const q = query.trim();
+      if (q) params.search = q;
+      if (sector && sector !== 'all') params.sector = sector;
+
+      const { data } = await httpClient.get<unknown>('/api/companies/search', { params });
+      return normalizeCompanyListResponse(data);
+    } catch {
+      const q = query.trim().toLowerCase();
+      return COMPANIES.filter((c) => {
+        const matchesQuery = !q || c.name.toLowerCase().includes(q) || c.ticker.toLowerCase().includes(q);
+        const matchesSector = !sector || sector === 'all' || c.sector === sector;
+        return matchesQuery && matchesSector;
+      });
+    }
+  },
+
+  async create(data: {
+    name: string;
+    ticker: string;
+    sector: string;
+    industry: string;
+    marketCapCr?: number;
+    description?: string;
+    color?: string;
+  }): Promise<Company> {
+    const body = toSnakeCase(data as unknown as Record<string, unknown>);
+    const { data: response } = await httpClient.post<unknown>('/api/companies', body);
+    const company = normalizeCompanyPayload(response);
+    if (!company) throw new Error('Failed to create company');
+    return company;
+  },
+
+  async update(
+    id: string,
+    data: Partial<{
+      name: string;
+      ticker: string;
+      sector: string;
+      industry: string;
+      marketCapCr: number;
+      description: string;
+      color: string;
+    }>
+  ): Promise<Company> {
+    const body = toSnakeCase(data as unknown as Record<string, unknown>);
+    const { data: response } = await httpClient.put<unknown>(`/api/companies/${id}`, body);
+    const company = normalizeCompanyPayload(response);
+    if (!company) throw new Error('Failed to update company');
+    return company;
+  },
+
+  async delete(id: string): Promise<void> {
+    await httpClient.delete(`/api/companies/${id}`);
   },
 };
 
 export const documentService = {
+  async list(page = 1, limit = 20): Promise<{ items: DocumentItem[]; total: number }> {
+    try {
+      const params = { page, limit };
+      const { data } = await httpClient.get<unknown>('/api/documents', { params });
+      const items = normalizeDocumentListResponse(data);
+      const total = extractTotalCount(data) ?? items.length;
+      return { items, total };
+    } catch {
+      return { items: DOCUMENTS, total: DOCUMENTS.length };
+    }
+  },
 
-  
-  async list(): Promise<DocumentItem[]> {
-    return DOCUMENTS;
-  },
   async get(id: string): Promise<DocumentItem | undefined> {
-    return DOCUMENTS.find((d) => d.id === id);
+    try {
+      const { data } = await httpClient.get<unknown>(`/api/documents/${id}`);
+      return normalizeDocumentPayload(data);
+    } catch {
+      return DOCUMENTS.find((d) => d.id === id);
+    }
   },
+
+  async getByCompany(companyId: string, page = 1, limit = 20): Promise<{ items: DocumentItem[]; total: number }> {
+    try {
+      const params = { page, limit };
+      const { data } = await httpClient.get<unknown>(`/api/documents/company/${companyId}`, { params });
+      const items = normalizeDocumentListResponse(data);
+      const total = extractTotalCount(data) ?? items.length;
+      return { items, total };
+    } catch {
+      const items = DOCUMENTS.filter((d) => d.companyId === companyId);
+      return { items, total: items.length };
+    }
+  },
+
   async filter(opts: {
     query?: string;
     companyId?: string | 'all';
     type?: DocumentItem['type'] | 'all';
     year?: number | 'all';
     quarter?: string | 'all';
-  }): Promise<DocumentItem[]> {
-    const q = (opts.query ?? '').trim().toLowerCase();
-    return DOCUMENTS.filter((d) => {
-      const mq = !q || d.name.toLowerCase().includes(q) || d.companyName.toLowerCase().includes(q);
-      const mc = !opts.companyId || opts.companyId === 'all' || d.companyId === opts.companyId;
-      const mt = !opts.type || opts.type === 'all' || d.type === opts.type;
-      const my = !opts.year || opts.year === 'all' || d.year === opts.year;
-      const mq2 = !opts.quarter || opts.quarter === 'all' || d.quarter === opts.quarter;
-      return mq && mc && mt && my && mq2;
-    });
+    page?: number;
+    limit?: number;
+  }): Promise<{ items: DocumentItem[]; total: number }> {
+    try {
+      const params: Record<string, string | number> = {};
+      if (opts.query) params.search = opts.query;
+      if (opts.companyId && opts.companyId !== 'all') params.company_id = opts.companyId;
+      if (opts.type && opts.type !== 'all') params.report_type = opts.type;
+      if (opts.year && opts.year !== 'all') params.year = opts.year;
+      if (opts.quarter && opts.quarter !== 'all') params.quarter = opts.quarter;
+      params.page = opts.page ?? 1;
+      params.limit = opts.limit ?? 20;
+
+      const { data } = await httpClient.get<unknown>('/api/documents', { params });
+      const items = normalizeDocumentListResponse(data);
+      const total = extractTotalCount(data) ?? items.length;
+      return { items, total };
+    } catch {
+      const q = (opts.query ?? '').trim().toLowerCase();
+      const filtered = DOCUMENTS.filter((d) => {
+        const mq = !q || d.name.toLowerCase().includes(q) || d.companyName.toLowerCase().includes(q);
+        const mc = !opts.companyId || opts.companyId === 'all' || d.companyId === opts.companyId;
+        const mt = !opts.type || opts.type === 'all' || d.type === opts.type;
+        const my = !opts.year || opts.year === 'all' || d.year === opts.year;
+        const mq2 = !opts.quarter || opts.quarter === 'all' || d.quarter === opts.quarter;
+        return mq && mc && mt && my && mq2;
+      });
+      const page = opts.page ?? 1;
+      const limit = opts.limit ?? 20;
+      const start = (page - 1) * limit;
+      return { items: filtered.slice(start, start + limit), total: filtered.length };
+    }
   },
 
+  async upload(formData: FormData): Promise<DocumentItem> {
+    try {
+      const { data } = await httpClient.post('/api/documents/upload', formData);
+      const payload = data.data ?? data;
+      return normalizeDocumentPayload(payload) as DocumentItem;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  async update(id: string, patch: Partial<DocumentItem>): Promise<DocumentItem | undefined> {
+    try {
+      const { data } = await httpClient.put(`/api/documents/${id}`, toSnakeCase(patch));
+      return normalizeDocumentPayload(data);
+    } catch {
+      return undefined;
+    }
+  },
+
+  async remove(id: string): Promise<boolean> {
+    try {
+      await httpClient.delete(`/api/documents/${id}`);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  /**
+   * Get a presigned preview URL for a document.
+   * GET /api/documents/{id}/preview
+   * Returns { success, preview_url, expires_in }
+   */
+  async preview(id: string): Promise<{ url: string; expiresIn: number } | null> {
+    try {
+      const { data } = await httpClient.get<Record<string, unknown>>(`/api/documents/${id}/preview`);
+      const rec = (data?.data as Record<string, unknown>) ?? data;
+      const url = (rec?.preview_url as string) ?? null;
+      const expiresIn = (rec?.expires_in as number) ?? 3600;
+      return url ? { url, expiresIn } : null;
+    } catch {
+      return null;
+    }
+  },
+
+  /**
+   * Get a presigned download URL for a document.
+   * GET /api/documents/{id}/download
+   * Returns { success, download_url, expires_in }
+   */
+  async download(id: string): Promise<{ url: string; expiresIn: number } | null> {
+    try {
+      const { data } = await httpClient.get<Record<string, unknown>>(`/api/documents/${id}/download`);
+      const rec = (data?.data as Record<string, unknown>) ?? data;
+      const url = (rec?.download_url as string) ?? null;
+      const expiresIn = (rec?.expires_in as number) ?? 3600;
+      return url ? { url, expiresIn } : null;
+    } catch {
+      return null;
+    }
+  },
+
+  /**
+   * Trigger the embedding scheduler to process pending documents.
+   * POST /api/documents/scheduler/run
+   */
+  async runScheduler(): Promise<{ processed: number }> {
+    const { data } = await httpClient.post<{ success: boolean; processed: number }>('/api/documents/scheduler/run');
+    return { processed: data?.processed ?? 0 };
+  },
 };
+
+function normalizeDocumentListResponse(payload: unknown): DocumentItem[] {
+  if (Array.isArray(payload)) return payload.map((p) => normalizeDocumentPayload(p)).filter(Boolean) as DocumentItem[];
+  if (payload && typeof payload === 'object') {
+    const rec = payload as Record<string, unknown>;
+    const list = rec.items ?? rec.data ?? rec.documents ?? rec.results;
+    if (Array.isArray(list)) return list.map((p) => normalizeDocumentPayload(p)).filter(Boolean) as DocumentItem[];
+    // maybe single object wrapper
+    const single = rec.data && typeof rec.data === 'object' ? rec.data : rec;
+    const doc = normalizeDocumentPayload(single);
+    return doc ? [doc] : [];
+  }
+  return [];
+}
+
+function normalizeDocumentPayload(payload: unknown): DocumentItem | undefined {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const rec = (payload as Record<string, unknown>).data && typeof (payload as Record<string, unknown>).data === 'object'
+    ? (payload as Record<string, unknown>).data as Record<string, unknown>
+    : (payload as Record<string, unknown>);
+
+  const id = String(rec.id ?? rec.document_id ?? rec.documentId ?? '');
+  if (!id) return undefined;
+
+  return {
+    id,
+    name: String(rec.name ?? rec.title ?? ''),
+    companyId: String(rec.company_id ?? rec.companyId ?? rec.company ?? ''),
+    companyName: String(rec.company_name ?? rec.companyName ?? rec.company_name ?? ''),
+    type: (rec.type as DocumentItem['type']) ?? 'filing',
+    quarter: rec.quarter ? String(rec.quarter) : undefined,
+    year: toNumber(rec.year ?? rec.fiscal_year ?? 0),
+    pageCount: toNumber(rec.page_count ?? rec.pageCount ?? rec.pages ?? 0),
+    sizeMb: toNumber(rec.size_mb ?? rec.sizeMb ?? 0),
+    uploadedAt: String(rec.uploaded_at ?? rec.uploadedAt ?? rec.created_at ?? new Date().toISOString()),
+    fileUrl: String(rec.file_url ?? rec.fileUrl ?? rec.url ?? ''),
+    sourceUrl: rec.source_url ? String(rec.source_url) : rec.sourceUrl ? String(rec.sourceUrl) : undefined,
+    starred: Boolean(rec.starred ?? rec.starred_at ?? false),
+  } as DocumentItem;
+}
+
+function extractTotalCount(payload: unknown): number | undefined {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const rec = payload as Record<string, unknown>;
+  return toNumber(rec.total ?? rec.count ?? rec.total_count ?? rec.totalDocuments ?? undefined);
+}
 
 export const insightService = {
   async forCompany(companyId: string): Promise<AiInsight[]> {
@@ -360,7 +754,18 @@ interface ApiMessage {
   content: string;
   created_at?: string;
   model?: AiModel;
-  sources?: ChatMessage['sources'];
+  sources?: SourceCitation[];
+}
+
+// Response shape from GET /api/messages/conversation/{id}
+interface ApiMessageResponse {
+  id: string | number;
+  role: 'user' | 'assistant';
+  content: string;
+  model?: string;
+  liked?: boolean;
+  created_at: string;
+  sources?: { document_id?: string; title?: string; page?: number }[];
 }
 
 interface ApiBookmark {
@@ -398,6 +803,23 @@ function mapApiMessage(m: ApiMessage): ChatMessage {
   };
 }
 
+function mapApiMessageResponse(m: ApiMessageResponse): ChatMessage {
+  return {
+    id: String(m.id),
+    role: m.role,
+    content: m.content,
+    createdAt: m.created_at ?? new Date().toISOString(),
+    model: m.model ? (m.model as AiModel) : undefined,
+    liked: m.liked ?? null,
+    sources: (m.sources ?? []).map((s, i) => ({
+      id: `src_${i}`,
+      title: s.title ?? 'Untitled',
+      documentId: s.document_id ?? '',
+      page: s.page ?? 1,
+    })),
+  };
+}
+
 function mapApiBookmark(b: ApiBookmark): Bookmark {
   return {
     id: String(b.id),
@@ -428,10 +850,101 @@ function mapApiUser(d: Record<string, unknown>): AppUser {
 function toSnakeCase(obj: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(obj).map(([k, v]) => [
-      k.replace(/([A-Z])/g, (c) => `_${c.toLowerCase()}`),
+      k.replace(/([A-Z])/g, '_$1').toLowerCase(),
       v,
     ])
   );
+}
+
+function normalizeCompanyListResponse(payload: unknown): Company[] {
+  if (Array.isArray(payload)) {
+    return payload.map((item) => normalizeCompanyPayload(item)).filter((company): company is Company => Boolean(company));
+  }
+
+  if (payload && typeof payload === 'object') {
+    const record = payload as Record<string, unknown>;
+    const listCandidate = record.items ?? record.data ?? record.companies ?? record.results;
+
+    if (Array.isArray(listCandidate)) {
+      return listCandidate
+        .map((item) => normalizeCompanyPayload(item))
+        .filter((company): company is Company => Boolean(company));
+    }
+
+    const singleCandidate = record.data && typeof record.data === 'object' && !Array.isArray(record.data)
+      ? (record.data as Record<string, unknown>)
+      : record;
+    const company = normalizeCompanyPayload(singleCandidate);
+    return company ? [company] : [];
+  }
+
+  return [];
+}
+
+function normalizeCompanyPayload(payload: unknown, fallback?: Company): Company | undefined {
+  if (!payload || typeof payload !== 'object') return fallback;
+
+  const record = payload as Record<string, unknown>;
+
+  // The API wraps create/update responses in { success, message, data: {...} }
+  // The GET /{id} wraps in { success, data: {...} }
+  // The GET /list wraps in { success, page, limit, total, items: [...] }
+  // Handle the { data: {...} } wrapper for single-object responses
+  const nested =
+    record.data && typeof record.data === 'object' && !Array.isArray(record.data) && !('items' in record)
+      ? (record.data as Record<string, unknown>)
+      : record;
+
+  const id = String(nested.id ?? nested.company_id ?? nested.companyId ?? fallback?.id ?? '');
+  if (!id) return fallback;
+
+  const metrics = nested.metrics && typeof nested.metrics === 'object' ? nested.metrics as Record<string, unknown> : undefined;
+
+  return {
+    id,
+    name: String(nested.name ?? nested.company_name ?? nested.companyName ?? fallback?.name ?? 'Unnamed company'),
+    ticker: String(nested.ticker ?? nested.symbol ?? nested.company_ticker ?? fallback?.ticker ?? ''),
+    sector: normalizeSector(nested.sector ?? nested.industry_sector ?? fallback?.sector),
+    industry: String(nested.industry ?? nested.sub_sector ?? nested.business ?? fallback?.industry ?? ''),
+    marketCapCr: toNumber(nested.market_cap_cr ?? nested.marketCapCr ?? nested.market_cap ?? fallback?.marketCapCr),
+    description: String(nested.description ?? nested.about ?? nested.summary ?? fallback?.description ?? ''),
+    latestFilingDate: String(nested.latest_filing_date ?? nested.latestFilingDate ?? nested.latest_filing ?? fallback?.latestFilingDate ?? new Date().toISOString()),
+    totalReports: toNumber(nested.total_reports ?? nested.totalReports ?? nested.report_count ?? fallback?.totalReports),
+    color: String(nested.color ?? fallback?.color ?? '#2563EB'),
+    metrics: {
+      revenue: normalizeMetricSeries(metrics?.revenue, fallback?.metrics?.revenue),
+      profit: normalizeMetricSeries(metrics?.profit, fallback?.metrics?.profit),
+      eps: normalizeMetricSeries(metrics?.eps, fallback?.metrics?.eps),
+      growth: normalizeMetricSeries(metrics?.growth, fallback?.metrics?.growth),
+    },
+  };
+}
+
+function normalizeMetricSeries(value: unknown, fallback?: Company['metrics']['revenue']): Company['metrics']['revenue'] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        const record = item as Record<string, unknown> | undefined;
+        return {
+          period: String(record?.period ?? record?.label ?? record?.name ?? ''),
+          value: toNumber(record?.value ?? record?.amount ?? record?.metric ?? 0),
+        };
+      })
+      .filter((entry) => Boolean(entry.period));
+  }
+
+  return fallback ?? [];
+}
+
+function normalizeSector(value: unknown, fallback?: Company['sector']): Company['sector'] {
+  const safe = String(value ?? fallback ?? 'Technology');
+  const allowed: Company['sector'][] = ['Technology', 'Energy', 'Finance', 'Healthcare', 'Consumer', 'Industrial', 'Materials'];
+  return allowed.includes(safe as Company['sector']) ? (safe as Company['sector']) : 'Technology';
+}
+
+function toNumber(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 // ─── Mock stream fallback ─────────────────────────────────────────────────────

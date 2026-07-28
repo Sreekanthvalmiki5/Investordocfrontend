@@ -41,8 +41,9 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     const { query, companyId, type, year, quarter } = get();
     set({ loading: true, error: null });
     try {
-      const documents = await documentService.filter({ query, companyId, type, year, quarter });
-      set({ documents, loading: false });
+      const result = await documentService.filter({ query, companyId, type, year, quarter });
+      // documentService.filter() returns { items: DocumentItem[], total: number }
+      set({ documents: result.items, loading: false });
     } catch (e) {
       set({ error: (e as Error).message, loading: false });
     }

@@ -124,7 +124,7 @@ export function AdminCompaniesPage() {
     setEditDialogOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.name || !formData.ticker || !formData.industry) {
       toast({
         title: 'Validation Error',
@@ -134,32 +134,47 @@ export function AdminCompaniesPage() {
       return;
     }
 
-    if (selectedCompany) {
-      updateCompany(selectedCompany.id, formData);
+    try {
+      if (selectedCompany) {
+        await updateCompany(selectedCompany.id, formData);
+        toast({
+          title: 'Company updated',
+          description: `${formData.name} has been updated successfully.`,
+        });
+      } else {
+        await addCompany(formData);
+        toast({
+          title: 'Company added',
+          description: `${formData.name} has been added to the platform.`,
+        });
+      }
+      setEditDialogOpen(false);
+      setSelectedCompany(null);
+    } catch (error) {
       toast({
-        title: 'Company updated',
-        description: `${formData.name} has been updated successfully.`,
-      });
-    } else {
-      addCompany(formData);
-      toast({
-        title: 'Company added',
-        description: `${formData.name} has been added to the platform.`,
+        title: 'Error',
+        description: `Failed to ${selectedCompany ? 'update' : 'add'} company. Please try again.`,
+        variant: 'destructive',
       });
     }
-    setEditDialogOpen(false);
-    setSelectedCompany(null);
   };
 
-  const handleDelete = () => {
-    if (selectedCompany) {
-      deleteCompany(selectedCompany.id);
+  const handleDelete = async () => {
+    if (!selectedCompany) return;
+    try {
+      await deleteCompany(selectedCompany.id);
       toast({
         title: 'Company deleted',
         description: `${selectedCompany.name} has been removed.`,
       });
       setDeleteDialogOpen(false);
       setSelectedCompany(null);
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to delete company. Please try again.',
+        variant: 'destructive',
+      });
     }
   };
 

@@ -28,6 +28,7 @@ import {
 import { BrandLogo } from '@/components/common/BrandLogo';
 import { useAuthStore } from '@/store/auth.store';
 import { useAdminStore } from '@/store/admin.store';
+import { useCompanyStore } from '@/store/company.store';
 import { cn } from '@/lib/utils';
 
 interface NavItem {
@@ -56,6 +57,8 @@ export function AdminLayout() {
     if (initialized.current) return;
     initialized.current = true;
     init();
+    // Ensure companies are loaded for admin pages (e.g. upload form)
+    useCompanyStore.getState().init();
   }, [init]);
 
   return (

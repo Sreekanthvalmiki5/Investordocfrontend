@@ -1,10 +1,7 @@
 import { useParams, Link } from '@tanstack/react-router';
 import { useEffect, useState, useCallback } from 'react';
-import { Document, Page, pdfjs } from 'react-pdf';
 import {
   ArrowLeft,
-  ChevronLeft,
-  ChevronRight,
   Building2,
   Calendar,
   FileText,
@@ -12,6 +9,8 @@ import {
   Download,
   Highlighter,
   ExternalLink,
+  ExternalLinkIcon,
+  RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -22,34 +21,112 @@ import { documentService } from '@/services/api';
 import { useChatStore } from '@/store/chat.store';
 import type { DocumentItem } from '@/types';
 
-pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+// ─── Preview URL cache (10-minute TTL) ────────────────────────────────────────
+
+interface CacheEntry {
+  url: string;
+  fetchedAt: number;
+  expiresIn: number; // seconds from backend
+}
+
+const PREVIEW_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const previewCache = new Map<string, CacheEntry>();
+
+function getCachedPreview(id: string): string | null {
+  const entry = previewCache.get(id);
+  if (!entry) return null;
+  const elapsed = Date.now() - entry.fetchedAt;
+  // Stale if cache TTL exceeded or backend expiration is near
+  if (elapsed > PREVIEW_CACHE_TTL_MS || elapsed > entry.expiresIn * 800) {
+    previewCache.delete(id);
+    return null;
+  }
+  return entry.url;
+}
+
+function setCachedPreview(id: string, url: string, expiresIn: number): void {
+  previewCache.set(id, { url, fetchedAt: Date.now(), expiresIn });
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export function PdfViewerPage() {
   const { documentId } = useParams({ from: '/documents/$documentId' });
   const [doc, setDoc] = useState<DocumentItem | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(() =>
+    getCachedPreview(documentId)
+  );
   const [loading, setLoading] = useState(true);
-  const [numPages, setNumPages] = useState(0);
-  const [pageNumber, setPageNumber] = useState(1);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState(false);
   const pendingCitation = useChatStore((s) => s.pendingCitation);
   const clearPendingCitation = useChatStore((s) => s.clearPendingCitation);
 
+  // ── Load document metadata ──
   useEffect(() => {
     setLoading(true);
+
     documentService.get(documentId).then((d) => {
       setDoc(d ?? null);
       setLoading(false);
-      const citedPage = pendingCitation?.documentId === documentId ? pendingCitation.page : 1;
-      setPageNumber(Math.max(1, citedPage));
+
       clearPendingCitation();
     });
   }, [documentId, pendingCitation, clearPendingCitation]);
 
-  const onDocLoad = useCallback(({ numPages }: { numPages: number }) => {
-    setNumPages(numPages);
-  }, []);
+  // ── Fetch preview URL and open in new tab ──
+  const handleOpenPdf = useCallback(async () => {
+    // Check cache first
+    const cached = getCachedPreview(documentId);
+    if (cached) {
+      window.open(cached, '_blank', 'noopener,noreferrer');
+      return;
+    }
 
-  const goPrev = () => setPageNumber((p) => Math.max(1, p - 1));
-  const goNext = () => setPageNumber((p) => Math.min(numPages || doc?.pageCount || 1, p + 1));
+    setPreviewLoading(true);
+    setPreviewError(false);
+
+    try {
+      const result = await documentService.preview(documentId);
+      if (result?.url) {
+        setCachedPreview(documentId, result.url, result.expiresIn);
+        setPreviewUrl(result.url);
+        window.open(result.url, '_blank', 'noopener,noreferrer');
+      } else {
+        setPreviewError(true);
+      }
+    } catch {
+      setPreviewError(true);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [documentId]);
+
+  // Autofetch preview URL on mount but don't auto-open
+  useEffect(() => {
+    const cached = getCachedPreview(documentId);
+    if (cached) {
+      setPreviewUrl(cached);
+    } else {
+      // Silently pre-fetch and cache so it's ready when user clicks
+      documentService.preview(documentId).then((result) => {
+        if (result?.url) {
+          setCachedPreview(documentId, result.url, result.expiresIn);
+          setPreviewUrl(result.url);
+        }
+      });
+    }
+  }, [documentId]);
+
+  // ── Download handler ──
+  const handleDownload = useCallback(async () => {
+    const result = await documentService.download(documentId);
+    if (result?.url) {
+      window.open(result.url, '_blank');
+    }
+  }, [documentId]);
+
+  // ── Render ──
 
   if (loading) {
     return (
@@ -70,7 +147,7 @@ export function PdfViewerPage() {
 
   return (
     <div className="h-full flex flex-col md:grid md:grid-cols-[1fr_320px]">
-      {/* PDF area */}
+      {/* PDF preview area */}
       <div className="flex flex-col h-full min-h-0 border-r border-border">
         {/* Toolbar */}
         <div className="h-12 shrink-0 border-b border-border flex items-center gap-2 px-3">
@@ -79,31 +156,59 @@ export function PdfViewerPage() {
           </Button>
           <Separator orientation="vertical" className="h-5" />
           <p className="text-sm font-medium truncate flex-1">{doc.name}</p>
-          <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon" className="size-8" onClick={goPrev} disabled={pageNumber <= 1}>
-              <ChevronLeft className="size-4" />
-            </Button>
-            <span className="text-xs text-muted-foreground min-w-[70px] text-center">
-              {pageNumber} / {numPages || doc.pageCount}
-            </span>
-            <Button variant="outline" size="icon" className="size-8" onClick={goNext} disabled={pageNumber >= (numPages || doc.pageCount)}>
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
         </div>
 
-        <ScrollArea className="flex-1 min-h-0 bg-[#1a1f2e] scrollbar-thin">
-          <div className="flex justify-center py-6">
-            <div className="relative">
-              <Document file={doc.fileUrl} onLoadSuccess={onDocLoad} loading={<Skeleton className="w-[560px] h-[760px]" />} error={<div className="p-6 text-center text-sm text-muted-foreground max-w-md">Preview unavailable. The PDF source is not reachable in this sandbox. <a className="text-primary underline" href={doc.fileUrl} target="_blank" rel="noreferrer">Open source</a>.</div>}>
-                <Page pageNumber={pageNumber} width={560} className="rounded-md shadow-2xl shadow-black/40" renderTextLayer={false} renderAnnotationLayer={false} />
-              </Document>
-              {pendingCitation && (
-                <div className="absolute -left-3 top-4 h-[calc(100%-2rem)] w-0.5 bg-amber-400/80 animate-pulse" />
-              )}
+        <div className="flex-1 min-h-0 bg-[#1a1f2e] grid place-items-center p-8">
+          {previewLoading ? (
+            <div className="flex flex-col items-center gap-4">
+              <div className="size-10 rounded-full border-[3px] border-primary/30 border-t-primary animate-spin" />
+              <p className="text-sm text-muted-foreground">Generating secure preview URL…</p>
             </div>
-          </div>
-        </ScrollArea>
+          ) : previewError ? (
+            <div className="flex flex-col items-center gap-4 max-w-sm text-center">
+              <FileText className="size-14 text-muted-foreground/30" />
+              <div>
+                <p className="text-base font-medium text-foreground mb-1">Unable to preview this document</p>
+                <p className="text-sm text-muted-foreground">
+                  The preview URL could not be generated. This may happen if the document hasn't been processed yet.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" className="gap-1.5" onClick={handleOpenPdf}>
+                  <RefreshCw className="size-3.5" /> Retry
+                </Button>
+                <Button variant="default" size="sm" className="gap-1.5" onClick={handleDownload}>
+                  <Download className="size-3.5" /> Download instead
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-5 max-w-md text-center">
+              <div className="size-16 rounded-2xl bg-primary/10 text-primary grid place-items-center">
+                <FileText className="size-8" />
+              </div>
+              <div>
+                <p className="text-lg font-semibold text-foreground mb-1">{doc.name}</p>
+                <p className="text-sm text-muted-foreground">
+                  {doc.companyName} · {doc.quarter ?? 'Annual'} FY{doc.year} · {doc.pageCount} pages
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <Button size="lg" className="gap-2 h-11 px-6" onClick={handleOpenPdf}>
+                  <ExternalLinkIcon className="size-4.5" />
+                  Open PDF in new tab
+                </Button>
+                <Button variant="outline" size="lg" className="gap-2 h-11 px-6" onClick={handleDownload}>
+                  <Download className="size-4.5" />
+                  Download
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground/60">
+                PDF opens in a new tab. If your browser blocks it, check your pop-up settings.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Metadata panel */}
@@ -137,7 +242,9 @@ export function PdfViewerPage() {
           </div>
 
           <div className="space-y-2 mt-5">
-            <Button variant="outline" className="w-full h-9 justify-start gap-2"><Download className="size-4" /> Download PDF</Button>
+            <Button variant="outline" className="w-full h-9 justify-start gap-2" onClick={handleDownload}>
+              <Download className="size-4" /> Download PDF
+            </Button>
             {doc.sourceUrl && (
               <Button asChild variant="ghost" className="w-full h-9 justify-start gap-2 text-muted-foreground">
                 <a href={doc.sourceUrl} target="_blank" rel="noreferrer"><ExternalLink className="size-4" /> View source</a>

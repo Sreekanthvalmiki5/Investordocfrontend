@@ -289,9 +289,9 @@ function App() {
     if (initialized.current) return;
     initialized.current = true;
     // init() reads localStorage synchronously via JSON.parse and sets store
-    useAuthStore.getState().init().then(() => {
-      setAuthReady(true);
-    });
+    // No .then() needed: init() is sync (async marker only for interface compatibility)
+    useAuthStore.getState().init();
+    setAuthReady(true);
   }, []);
 
   if (!authReady) {

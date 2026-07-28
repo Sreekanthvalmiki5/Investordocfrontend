@@ -1,4 +1,4 @@
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { FileText, BarChart3, ArrowUpRight, Sparkles, Building2, TrendingUp } from 'lucide-react';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { DashboardGreeting } from '@/components/chat/DashboardGreeting';
@@ -11,6 +11,7 @@ import type { Conversation } from '@/types';
 
 export function DashboardPage() {
   const user = useAuthStore((s) => s.user);
+  const navigate = useNavigate();
   const send = useChatStore((s) => s.sendMessage);
   // useShallow prevents re-render when the array contents haven't changed
   const recentConversations = useChatStore(
@@ -36,7 +37,7 @@ export function DashboardPage() {
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s.id}
-                  onClick={() => send(s.prompt)}
+                  onClick={() => send(s.prompt, (newId) => navigate({ to: '/chat/$chatId', params: { chatId: newId } }))}
                   className="group text-left p-3.5 rounded-xl bg-card border border-border hover:border-primary/40 transition-colors"
                 >
                   <p className="text-sm font-medium text-foreground">{s.prompt}</p>

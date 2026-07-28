@@ -1,6 +1,6 @@
 import { useRouterState, Link } from '@tanstack/react-router';
 import { Menu, Search, Bell, X } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { CompanySelector } from '@/components/chat/CompanySelector';
 import { ModelSelector } from '@/components/chat/ModelSelector';
@@ -20,16 +20,18 @@ export function AppLayout({ children }: { children?: React.ReactNode }) {
   const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen);
   const user = useAuthStore((s) => s.user);
 
-  // Use getState() instead of selectors so these stable store-method references
-  // never change and the effect only runs once on mount.
-  const inited = useRef(false);
+  // Re-initialise data stores whenever the authenticated user changes.
+  // This ensures conversations/documents/companies are fetched after login
+  // and stale data from a previous session is replaced.
   useEffect(() => {
-    if (inited.current) return;
-    inited.current = true;
+    if (!user) return;
+    // Reset stores from the previous session
+    useChatStore.getState().reset();
+    // Re-fetch from the backend
     useChatStore.getState().init();
     useDocumentStore.getState().init();
     useCompanyStore.getState().init();
-  }, []);
+  }, [user?.id]);
 
   const path = useRouterState({ select: (s) => s.location.pathname });
   const isChatRoute = path === '/dashboard' || path.startsWith('/chat');

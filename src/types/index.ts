@@ -23,6 +23,12 @@ export interface ModelOption {
 
 export type MessageRole = 'user' | 'assistant' | 'system';
 
+export interface MessageSource {
+  document_id?: string;
+  title?: string;
+  page?: number;
+}
+
 export interface SourceCitation {
   id: string;
   title: string;

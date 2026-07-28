@@ -1,4 +1,4 @@
-import { Link, useRouterState } from '@tanstack/react-router';
+import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
 import {
   PanelLeftClose,
   PanelLeftOpen,
@@ -58,6 +58,7 @@ export function Sidebar() {
   const conversations = useChatStore((s) => s.conversations);
   const activeId = useChatStore((s) => s.activeConversationId);
   const newConversation = useChatStore((s) => s.newConversation);
+  const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
 
   const recent = conversations
@@ -85,9 +86,11 @@ export function Sidebar() {
 
       {/* New chat */}
       <div className="p-2 pb-1">
-        <Link
-          to="/dashboard"
-          onClick={() => newConversation()}
+        <button
+          onClick={async () => {
+            const id = await newConversation();
+            navigate({ to: '/chat/$chatId', params: { chatId: id } });
+          }}
           className={cn(
             'flex items-center gap-2.5 w-full rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors text-sm font-medium shadow-sm shadow-primary/20',
             collapsed ? 'justify-center py-2.5' : 'px-3 py-2.5'
@@ -95,7 +98,7 @@ export function Sidebar() {
         >
           <Plus className="size-4" />
           {!collapsed && <span>New chat</span>}
-        </Link>
+        </button>
       </div>
 
       {/* Search */}

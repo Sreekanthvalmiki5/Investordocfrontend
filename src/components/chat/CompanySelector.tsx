@@ -4,7 +4,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import { COMPANIES } from '@/services/mockData';
+import { useCompanyStore } from '@/store/company.store';
 import { useChatStore } from '@/store/chat.store';
 import { cn } from '@/lib/utils';
 
@@ -14,8 +14,9 @@ export function CompanySelector() {
   const selected = useChatStore((s) => s.selectedCompanyId);
   const setCompany = useChatStore((s) => s.setCompany);
 
-  const current = COMPANIES.find((c) => c.id === selected);
-  const filtered = COMPANIES.filter(
+  const companies = useCompanyStore((s) => s.companies);
+  const current = companies.find((c) => c.id === selected);
+  const filtered = companies.filter(
     (c) => !query || c.name.toLowerCase().includes(query.toLowerCase()) || c.ticker.toLowerCase().includes(query.toLowerCase())
   );
 
