@@ -174,6 +174,7 @@ function ReportsTab({ companyId }: { companyId: string }) {
   const { data: docs = [], isLoading } = useQuery({
     queryKey: ['docs-company', companyId],
     queryFn: () => documentService.filter({ companyId }),
+    select: (res) => res.items,
   });
   if (isLoading) return <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-32 rounded-xl" />)}</div>;
   if (docs.length === 0) return <p className="text-sm text-muted-foreground">No reports indexed for this company yet.</p>;

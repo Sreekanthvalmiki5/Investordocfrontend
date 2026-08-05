@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AdminUser, AdminDocument, AdminCompany, UploadProgress, ReportType, DocumentItem } from '@/types';
+import type { AdminUser, AdminDocument, AdminCompany, UploadProgress, ReportType } from '@/types';
 import { ADMIN_DOCUMENTS, COMPANIES as MOCK_COMPANIES } from '@/services/mockData';
 import { companyService, documentService, userService } from '@/services/api';
 

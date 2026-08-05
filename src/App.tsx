@@ -37,6 +37,9 @@ import { AdminAnalyticsPage } from '@/pages/admin/AdminAnalytics';
 import { AdminSettingsPage } from '@/pages/admin/AdminSettings';
 import type { ReactNode } from 'react';
 import { ResetPasswordPage } from '@/pages/ResetPassword';
+import { VerifyEmailPage } from '@/pages/VerifyEmail';
+import { GoogleCallbackPage } from '@/pages/GoogleCallback';
+import { Toaster } from '@/components/ui/sonner';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -106,6 +109,19 @@ const resetPasswordRoute = createRoute({
   path: '/reset-password',
   beforeLoad: guestOnly,
   component: ResetPasswordPage,
+});
+
+const verifyEmailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/verify-email',
+  beforeLoad: guestOnly,
+  component: VerifyEmailPage,
+});
+
+const googleCallbackRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/google-callback',
+  component: GoogleCallbackPage,
 });
 
 const dashboardRoute = createRoute({
@@ -254,6 +270,8 @@ const routeTree = rootRoute.addChildren([
   profileRoute,
   accessDeniedRoute,
     resetPasswordRoute,
+    verifyEmailRoute,
+    googleCallbackRoute,
   adminLayoutRoute.addChildren([
     adminDashboardRoute,
     adminUploadRoute,
@@ -310,6 +328,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
+      <Toaster />
     </QueryClientProvider>
   );
 }

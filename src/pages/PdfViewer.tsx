@@ -53,7 +53,9 @@ function setCachedPreview(id: string, url: string, expiresIn: number): void {
 export function PdfViewerPage() {
   const { documentId } = useParams({ from: '/documents/$documentId' });
   const [doc, setDoc] = useState<DocumentItem | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(() =>
+  // The cached preview is only used as the initial value; rendering uses the
+  // doc's own preview URL once resolved.
+  const [, setPreviewUrl] = useState<string | null>(() =>
     getCachedPreview(documentId)
   );
   const [loading, setLoading] = useState(true);

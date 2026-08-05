@@ -11,6 +11,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { useAuthStore } from '@/store/auth.store';
 import { useNavigate } from '@tanstack/react-router';
+import { authService } from '@/services/api';
+import { toast } from 'sonner';
 
 export function ProfilePage() {
   const navigate = useNavigate();
@@ -19,6 +21,11 @@ export function ProfilePage() {
   const [lastName, setLastName] = useState(user?.lastName ?? '');
   const [email, setEmail] = useState(user?.email ?? '');
   const [saving, setSaving] = useState(false);
+  const [changePwOpen, setChangePwOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [changingPw, setChangingPw] = useState(false);
 
   const initials = (user?.fullName ?? 'U').split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase();
 
@@ -33,6 +40,34 @@ export function ProfilePage() {
     navigate({ to: '/' });
   };
 
+  const changePassword = async () => {
+    if (newPassword.length < 8) {
+      toast.error('New password must be at least 8 characters.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error('New passwords do not match.');
+      return;
+    }
+    setChangingPw(true);
+    try {
+      await authService.changePassword(currentPassword, newPassword);
+      toast.success('Password updated successfully.');
+      setChangePwOpen(false);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err) {
+      toast.error(
+        (err as any)?.response?.data?.detail ||
+          (err as Error)?.message ||
+          'Could not change password'
+      );
+    } finally {
+      setChangingPw(false);
+    }
+  };
+
   return (
     <div className="h-full flex flex-col">
       <ScrollArea className="flex-1 min-h-0 scrollbar-thin">
@@ -43,15 +78,33 @@ export function ProfilePage() {
             {/* Profile summary */}
             <Card className="p-5 flex flex-col items-center text-center bg-card border-border">
               <Avatar className="size-20 border-2 border-primary/30">
-                <AvatarFallback className="bg-primary/15 text-primary text-xl font-semibold">{initials}</AvatarFallback>
+                {user?.avatarUrl ? (
+                  <img src={user.avatarUrl} alt={user.fullName} className="size-full object-cover" />
+                ) : (
+                  <AvatarFallback className="bg-primary/15 text-primary text-xl font-semibold">{initials}</AvatarFallback>
+                )}
               </Avatar>
               <h2 className="text-base font-semibold mt-3">{user?.fullName ?? 'Investor'}</h2>
               <p className="text-xs text-muted-foreground">{user?.email}</p>
-              <Badge className="mt-2 uppercase tracking-wide bg-primary/15 text-primary border-primary/20">{user?.plan ?? 'pro'} plan</Badge>
+              <div className="flex items-center gap-1.5 flex-wrap justify-center mt-2">
+                <Badge className="uppercase tracking-wide bg-primary/15 text-primary border-primary/20">{user?.plan ?? 'pro'} plan</Badge>
+                <Badge variant="secondary" className="uppercase tracking-wide">
+                  {user?.authProvider === 'google' ? 'Google' : 'Email'}
+                </Badge>
+                {user?.emailVerified === false && (
+                  <Badge className="uppercase tracking-wide bg-amber-500/15 text-amber-600 border-amber-500/30">
+                    Unverified
+                  </Badge>
+                )}
+              </div>
               <Separator className="my-4" />
               <div className="grid grid-cols-2 gap-3 w-full text-center">
                 <Stat label="Role" value={user?.role ?? 'analyst'} />
                 <Stat label="Member since" value={new Date(user?.createdAt ?? Date.now()).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })} />
+                <Stat
+                  label="Last login"
+                  value={user?.lastLogin ? new Date(user.lastLogin).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
+                />
               </div>
             </Card>
 
@@ -87,7 +140,41 @@ export function ProfilePage() {
 
               <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Shield className="size-4" /> Security</h3>
               <div className="space-y-2">
-                <RowItem icon={<Shield className="size-4" />} label="Password" value="••••••••" action={<Button variant="outline" size="sm">Change</Button>} />
+                <RowItem
+                  icon={<Shield className="size-4" />}
+                  label="Password"
+                  value="••••••••"
+                  action={
+                    <Button variant="outline" size="sm" onClick={() => setChangePwOpen((v) => !v)}>
+                      {changePwOpen ? 'Cancel' : 'Change'}
+                    </Button>
+                  }
+                />
+                {changePwOpen && (
+                  <div className="rounded-lg border border-border p-3 space-y-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="pw-current">Current password</Label>
+                      <Input id="pw-current" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} className="h-10" />
+                    </div>
+                    <div className="grid sm:grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="pw-new">New password</Label>
+                        <Input id="pw-new" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="h-10" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="pw-confirm">Confirm new password</Label>
+                        <Input id="pw-confirm" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="h-10" />
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="ghost" size="sm" onClick={() => setChangePwOpen(false)}>Cancel</Button>
+                      <Button size="sm" onClick={changePassword} disabled={changingPw} className="gap-2">
+                        {changingPw ? <Loader2 className="size-4 animate-spin" /> : null}
+                        Update password
+                      </Button>
+                    </div>
+                  </div>
+                )}
                 <RowItem icon={<Star className="size-4" />} label="Two-factor auth" value="Not enabled" action={<Button variant="outline" size="sm">Enable</Button>} />
                 <RowItem icon={<Calendar className="size-4" />} label="Plan" value={`${user?.plan ?? 'pro'} · billed annually`} action={<Button variant="outline" size="sm">Manage</Button>} />
               </div>

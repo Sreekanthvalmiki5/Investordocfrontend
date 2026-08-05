@@ -82,7 +82,6 @@ export function AdminUsersPage() {
   const setUsersPage = useAdminStore((s) => s.setUsersPage);
   const updateUser = useAdminStore((s) => s.updateUser);
   const deleteUser = useAdminStore((s) => s.deleteUser);
-  const loadUsers = useAdminStore((s) => s.loadUsers);
   const { toast } = useToast();
 
   const [search, setSearch] = useState('');

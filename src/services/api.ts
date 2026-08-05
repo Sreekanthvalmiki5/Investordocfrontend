@@ -13,6 +13,7 @@ import type {
   AiModel,
   AppUser,
   Bookmark,
+  BookmarkKind,
   ChatMessage,
   Company,
   Conversation,
@@ -71,7 +72,7 @@ export const authService = {
         );
       }
       // Fallback: build a local demo user so the UI still works without auth backend (e.g. server down or returns 404)
-      return _demoSignIn(email);
+    return _demoSignIn(email);  
     }
   },
 
@@ -98,8 +99,67 @@ export const authService = {
   },
 
   async signInWithGoogle(): Promise<AppUser> {
-    // Redirect-based OAuth — for now fall back to demo user.
-    return _demoSignIn('demo@investor.ai', 'Demo', 'Investor');
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+
+    // In dev without a Google client ID, keep the local demo fallback so the
+    // UI remains usable without external keys.
+    if (!clientId) {
+      if (import.meta.env.DEV) {
+        console.warn('VITE_GOOGLE_CLIENT_ID not set — falling back to demo user (dev only)');
+       
+      }
+      // Production: fall back to the server-side Google redirect flow.
+      window.location.href = `${API_URL}/api/auth/google/login`;
+      // The page reloads; the /google-callback route completes the sign-in.
+      return new Promise<AppUser>(() => {});
+    }
+
+    // Primary flow: Google Identity Services popup -> ID token -> backend.
+    const credential = await getGoogleCredential(clientId);
+    if (!credential) {
+      // Popup unavailable/cancelled/timed out — use the server redirect flow.
+      window.location.href = `${API_URL}/api/auth/google/login`;
+      return new Promise<AppUser>(() => {});
+    }
+
+    try {
+      const { data } = await httpClient.post('/api/auth/google', { id_token: credential });
+      const payload = data.data ?? data;
+      const user: AppUser = mapApiUser(payload.user ?? payload);
+      const token: string = payload.access_token ?? payload.token ?? '';
+      localStorage.setItem('idf_user', JSON.stringify(user));
+      if (token) localStorage.setItem('idf_token', token);
+      return user;
+    } catch (err: any) {
+      throw new Error(
+        err.response?.data?.detail ||
+        err.response?.data?.message ||
+        'Google sign-in failed'
+      );
+    }
+  },
+
+  async verifyEmail(token: string): Promise<void> {
+    const { data } = await httpClient.post('/api/auth/verify-email', { token });
+    if (data && data.success === false) {
+      throw new Error(data.message || 'Email verification failed');
+    }
+  },
+
+  async resendVerification(email: string): Promise<void> {
+    await httpClient.post('/api/auth/resend-verification', { email });
+  },
+
+  /** Exchange a JWT (from the Google redirect callback) for the user profile. */
+  async fetchCurrentUser(token: string): Promise<AppUser> {
+    const { data } = await httpClient.get('/api/auth/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const payload = data.data ?? data;
+    const user: AppUser = mapApiUser(payload);
+    localStorage.setItem('idf_user', JSON.stringify(user));
+    localStorage.setItem('idf_token', token);
+    return user;
   },
 
   async requestPasswordReset(email: string): Promise<void> {
@@ -144,6 +204,13 @@ export const authService = {
       localStorage.setItem('idf_user', JSON.stringify(user));
       return user;
     }
+  },
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    await httpClient.post('/api/auth/change-password', {
+      current_password: currentPassword,
+      new_password: newPassword,
+    });
   },
 };
 
@@ -213,6 +280,57 @@ async createConversation(title: string): Promise<Conversation> {
 
   models: MODELS as ModelOption[],
   suggestions: SUGGESTIONS,
+
+  /**
+   * Transcribe a voice recording (wav / mp3 / m4a / webm) and run it through
+   * the RAG pipeline. POST /api/chat/voice (multipart).
+   */
+  async sendVoice(
+    audioBlob: Blob,
+    filename: string,
+    companyId?: string,
+    conversationId?: string,
+  ): Promise<{ conversationId: string; content: string }> {
+    const form = new FormData();
+    form.append('file', audioBlob, filename);
+    if (companyId) form.append('company_id', companyId);
+    if (conversationId && conversationId !== 'undefined') {
+      form.append('conversation_id', conversationId);
+    }
+
+    const { data } = await httpClient.post('/api/chat/voice', form, { timeout: 120000 });
+    const payload = data?.data ?? data;
+    return {
+      conversationId: String(payload?.conversation_id ?? payload?.conversationId ?? conversationId ?? ''),
+      content: String(payload?.content ?? ''),
+    };
+  },
+
+  /**
+   * Analyze an uploaded image together with the retrieved document context.
+   * POST /api/chat/image (multipart).
+   */
+  async sendImage(
+    file: File,
+    question: string,
+    companyId?: string,
+    conversationId?: string,
+  ): Promise<{ conversationId: string; content: string }> {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('message', question);
+    if (companyId) form.append('company_id', companyId);
+    if (conversationId && conversationId !== 'undefined') {
+      form.append('conversation_id', conversationId);
+    }
+
+    const { data } = await httpClient.post('/api/chat/image', form, { timeout: 120000 });
+    const payload = data?.data ?? data;
+    return {
+      conversationId: String(payload?.conversation_id ?? payload?.conversationId ?? conversationId ?? ''),
+      content: String(payload?.content ?? ''),
+    };
+  },
 
   // Streams an SSE response from POST /api/conversations/{id}/messages.
   // Falls back to a token-by-token mock if the server doesn't support SSE.
@@ -350,8 +468,8 @@ export const bookmarkService = {
 
   async toggle(bookmark: Omit<Bookmark, 'id' | 'createdAt'>): Promise<Bookmark> {
     try {
-      const { data } = await httpClient.post<ApiBookmark>('/api/bookmarks', toSnakeCase(bookmark as unknown as Record<string, unknown>));
-      return mapApiBookmark(data);
+      const { data } = await httpClient.post<ApiResponse<ApiBookmark>>('/api/bookmarks', toSnakeCase(bookmark as unknown as Record<string, unknown>));
+      return mapApiBookmark(data.data ?? data);
     } catch {
       return { ...bookmark, id: 'b_' + Date.now(), createdAt: new Date().toISOString() };
     }
@@ -770,9 +888,10 @@ interface ApiMessageResponse {
 
 interface ApiBookmark {
   id: string | number;
+  kind?: BookmarkKind;
+  ref_id?: string;
   title?: string;
-  document_id?: string;
-  company_id?: string;
+  subtitle?: string;
   note?: string;
   created_at?: string;
 }
@@ -823,10 +942,10 @@ function mapApiMessageResponse(m: ApiMessageResponse): ChatMessage {
 function mapApiBookmark(b: ApiBookmark): Bookmark {
   return {
     id: String(b.id),
-    kind: 'document',
-    refId: b.document_id ?? b.company_id ?? String(b.id),
+    kind: b.kind ?? 'document',
+    refId: b.ref_id ?? String(b.id),
     title: b.title ?? '',
-    subtitle: b.note,
+    subtitle: b.subtitle ?? b.note,
     createdAt: b.created_at ?? new Date().toISOString(),
   };
 }
@@ -844,6 +963,10 @@ function mapApiUser(d: Record<string, unknown>): AppUser {
     plan: (d.plan as AppUser['plan']) ?? 'free',
     avatarUrl: (d.avatar_url as string | undefined) ?? (d.avatarUrl as string | undefined),
     createdAt: String(d.created_at ?? d.createdAt ?? new Date().toISOString()),
+    emailVerified: Boolean(d.email_verified ?? d.emailVerified ?? true),
+    authProvider: (d.auth_provider ?? d.authProvider ?? 'email') as AppUser['authProvider'],
+    googleId: (d.google_id as string | undefined) ?? (d.googleId as string | undefined),
+    lastLogin: (d.last_login as string | undefined) ?? (d.lastLogin as string | undefined),
   };
 }
 
@@ -991,6 +1114,56 @@ async function* _mockStream(
     yield { delta: token, done: false };
   }
   yield { delta: '', done: true, sources };
+}
+
+/**
+ * Request a Google credential (ID token) via Google Identity Services.
+ *
+ * Injects the GIS script on demand, opens the account-chooser popup, and
+ * resolves with the credential, or null when the popup is cancelled, times
+ * out, or fails to load.
+ */
+function getGoogleCredential(clientId: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const TIMEOUT_MS = 90_000;
+    let settled = false;
+    const finish = (credential: string | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(credential);
+    };
+
+    const finishInit = () => {
+      const gis = (window as any).google?.accounts?.id;
+      if (!gis) {
+        finish(null);
+        return;
+      }
+      try {
+        gis.initialize({
+          client_id: clientId,
+          callback: (resp: { credential?: string }) => finish(resp?.credential ?? null),
+        });
+        gis.prompt();
+      } catch {
+        finish(null);
+      }
+    };
+
+    if ((window as any).google?.accounts?.id) {
+      finishInit();
+    } else {
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      script.onload = finishInit;
+      script.onerror = () => finish(null);
+      document.head.appendChild(script);
+    }
+
+    window.setTimeout(() => finish(null), TIMEOUT_MS);
+  });
 }
 
 function _demoSignIn(email: string, firstName?: string, lastName?: string): AppUser {

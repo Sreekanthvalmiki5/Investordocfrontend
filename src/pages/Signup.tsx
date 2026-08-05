@@ -1,25 +1,39 @@
 import { useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Mail, Lock, User, Loader2, ArrowRight } from 'lucide-react';
+import { Mail, Lock, User, Loader2, ArrowRight, MailCheck, CheckCircle2 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { AuthLayout } from '@/layouts/AuthLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { toast } from 'sonner';
 
 export function SignupPage() {
   const navigate = useNavigate();
-  const { signUpWithEmail, signInWithGoogle, loading, error, clearError } = useAuthStore();
+  const { signUpWithEmail, signInWithGoogle, resendVerification, loading, error, clearError } = useAuthStore();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  // Email/password accounts must verify their address before they can sign in.
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+  const [resending, setResending] = useState(false);
+  const [resent, setResent] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     await signUpWithEmail(email, password, firstName, lastName);
     const user = useAuthStore.getState().user;
+
+    if (user && user.emailVerified === false) {
+      // Show the verification prompt instead of auto-logging in. The backend
+      // returns a JWT on register, but unverified users cannot sign in, so
+      // drop the local session to keep the guest-only guard consistent.
+      useAuthStore.getState().signOut().catch(() => {});
+      setPendingEmail(user.email);
+      return;
+    }
 
     if (user) {
       console.log(user.role);
@@ -30,6 +44,57 @@ export function SignupPage() {
       }
     }
   };
+
+  const resend = async () => {
+    if (!pendingEmail) return;
+    setResending(true);
+    setResent(false);
+    try {
+      await resendVerification(pendingEmail);
+      setResent(true);
+    } catch {
+      toast.error('Could not resend the verification email. Please try again.');
+    } finally {
+      setResending(false);
+    }
+  };
+
+  // ── Verification prompt screen ──────────────────────────────────────────────
+  if (pendingEmail) {
+    return (
+      <AuthLayout>
+        <div className="space-y-6 text-center">
+          <div className="mx-auto size-12 rounded-full bg-primary/15 text-primary grid place-items-center">
+            <MailCheck className="size-6" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight">Check your email</h2>
+            <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
+              We sent a verification link to <strong className="text-foreground">{pendingEmail}</strong>.
+              Click the link to activate your account, then sign in. The link expires in 24 hours.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            {resent ? (
+              <p className="flex items-center justify-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 className="size-3.5" /> Verification email sent — check your inbox.
+              </p>
+            ) : (
+              <Button variant="outline" className="w-full h-11 gap-2" onClick={resend} disabled={resending}>
+                {resending ? <Loader2 className="size-4 animate-spin" /> : <MailCheck className="size-4" />}
+                Resend verification email
+              </Button>
+            )}
+            <Link to="/" className="block w-full h-11 grid place-items-center text-sm text-muted-foreground hover:text-foreground transition">
+              Back to sign in
+            </Link>
+          </div>
+        </div>
+      </AuthLayout>
+    );
+  }
+
 
   const google = async () => {
     await signInWithGoogle();

@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Bookmark as BookmarkIcon, FileText, Building2, MessageSquare, Trash2 } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -11,9 +11,15 @@ import { bookmarkService } from '@/services/api';
 import type { Bookmark } from '@/types';
 
 export function BookmarksPage() {
+  const queryClient = useQueryClient();
   const { data: bookmarks = [], isLoading } = useQuery({
     queryKey: ['bookmarks'],
     queryFn: bookmarkService.list,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => bookmarkService.remove(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['bookmarks'] }),
   });
 
   return (
@@ -29,7 +35,7 @@ export function BookmarksPage() {
             <EmptyState icon={<BookmarkIcon className="size-6" />} title="No bookmarks yet" description="Bookmark messages, documents, or companies to find them here." />
           ) : (
             <div className="space-y-2 mt-4">
-              {bookmarks.map((b) => <BookmarkRow key={b.id} bookmark={b} />)}
+              {bookmarks.map((b) => <BookmarkRow key={b.id} bookmark={b} onDelete={() => deleteMutation.mutate(b.id)} />)}
             </div>
           )}
         </div>
@@ -38,7 +44,7 @@ export function BookmarksPage() {
   );
 }
 
-function BookmarkRow({ bookmark }: { bookmark: Bookmark }) {
+function BookmarkRow({ bookmark, onDelete }: { bookmark: Bookmark; onDelete: () => void }) {
   const { kind, title, subtitle, refId } = bookmark;
   const Icon = kind === 'document' ? FileText : kind === 'company' ? Building2 : MessageSquare;
   return (
@@ -65,7 +71,14 @@ function BookmarkRow({ bookmark }: { bookmark: Bookmark }) {
         )}
       </div>
       <Badge variant="secondary" className="text-[9px] capitalize">{kind}</Badge>
-      <Button variant="ghost" size="icon" className="size-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-8 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-muted-foreground hover:text-destructive"
+        onClick={onDelete}
+        aria-label={`Remove bookmark: ${title ?? 'untitled'}`}
+        title="Remove bookmark"
+      >
         <Trash2 className="size-3.5" />
       </Button>
     </div>

@@ -10,6 +10,14 @@ export interface AppUser {
   role: UserRole;
   plan: 'free' | 'pro' | 'enterprise';
   createdAt: string;
+  /** Whether the email address has been verified (email/password accounts). */
+  emailVerified?: boolean;
+  /** How the account was created: email/password or Google. */
+  authProvider?: 'email' | 'google';
+  /** Google account ID, when authProvider === 'google'. */
+  googleId?: string;
+  /** Timestamp of the last successful login. */
+  lastLogin?: string;
 }
 
 export type AiModel = 'gpt-5' | 'claude' | 'deepseek' | 'llama';

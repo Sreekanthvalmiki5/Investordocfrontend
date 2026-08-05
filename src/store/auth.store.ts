@@ -12,6 +12,12 @@ interface AuthState {
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   updateProfile: (patch: Partial<AppUser>) => Promise<void>;
+  /** Verify the email using the token from the emailed link. */
+  verifyEmail: (token: string) => Promise<void>;
+  /** Resend the verification email for the current (or given) email address. */
+  resendVerification: (email?: string) => Promise<void>;
+  /** Persist a session obtained from the Google redirect callback. */
+  completeRedirectSession: (token: string) => Promise<void>;
   clearError: () => void;
 }
 
@@ -66,6 +72,44 @@ export const useAuthStore = create<AuthState>((set) => ({
   updateProfile: async (patch) => {
     const user = await authService.updateProfile(patch);
     set({ user });
+  },
+
+  verifyEmail: async (token) => {
+    set({ loading: true, error: null });
+    try {
+      await authService.verifyEmail(token);
+      set((state) => ({
+        loading: false,
+        user: state.user ? { ...state.user, emailVerified: true } : state.user,
+      }));
+    } catch (e) {
+      set({ error: (e as Error).message, loading: false });
+      throw e;
+    }
+  },
+
+  resendVerification: async (email) => {
+    set({ loading: true, error: null });
+    try {
+      const target = email ?? useAuthStore.getState().user?.email;
+      if (!target) throw new Error('No email address to verify');
+      await authService.resendVerification(target);
+      set({ loading: false });
+    } catch (e) {
+      set({ error: (e as Error).message, loading: false });
+      throw e;
+    }
+  },
+
+  completeRedirectSession: async (token) => {
+    set({ loading: true, error: null });
+    try {
+      const user = await authService.fetchCurrentUser(token);
+      set({ user, loading: false });
+    } catch (e) {
+      set({ error: (e as Error).message, loading: false });
+      throw e;
+    }
   },
 
   clearError: () => set({ error: null }),

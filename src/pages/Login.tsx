@@ -1,18 +1,42 @@
 import { useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Mail, Lock, Loader2, ArrowRight } from 'lucide-react';
+import { Mail, Lock, Loader2, ArrowRight, MailCheck, CheckCircle2 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { AuthLayout } from '@/layouts/AuthLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { toast } from 'sonner';
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { signInWithPassword, signInWithGoogle, loading, error, clearError } = useAuthStore();
+  const { signInWithPassword, signInWithGoogle, resendVerification, loading, error, clearError } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [resending, setResending] = useState(false);
+  const [resent, setResent] = useState(false);
+
+  // The backend rejects unverified email accounts with a message containing
+  // "verify your email" — surface a resend banner in that case.
+  const needsVerification = Boolean(error && error.toLowerCase().includes('verify your email'));
+
+  const resend = async () => {
+    if (!email.trim()) {
+      toast.error('Enter your email address first.');
+      return;
+    }
+    setResending(true);
+    setResent(false);
+    try {
+      await resendVerification(email);
+      setResent(true);
+    } catch {
+      toast.error('Could not resend the verification email. Please try again.');
+    } finally {
+      setResending(false);
+    }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,7 +128,33 @@ export function LoginPage() {
             </div>
           </div>
 
-          {error && <p className="text-xs text-destructive">{error}</p>}
+          {needsVerification && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 space-y-2.5">
+              <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
+                Please verify your email address to sign in. Check your inbox for the
+                verification link (valid for 24 hours) or request a new one.
+              </p>
+              {resent ? (
+                <p className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 className="size-3.5" /> Verification email sent — check your inbox.
+                </p>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-amber-700 dark:text-amber-300 border-amber-500/30 hover:bg-amber-500/10"
+                  onClick={resend}
+                  disabled={resending || loading}
+                >
+                  {resending ? <Loader2 className="size-3.5 animate-spin" /> : <MailCheck className="size-3.5" />}
+                  Resend verification email
+                </Button>
+              )}
+            </div>
+          )}
+
+          {error && !needsVerification && <p className="text-xs text-destructive">{error}</p>}
 
           <Button type="submit" disabled={loading} className="w-full h-11 gap-2">
             {loading ? <Loader2 className="size-4 animate-spin" /> : <ArrowRight className="size-4" />}

@@ -29,6 +29,13 @@ interface ChatState {
   findConversation: (id: string) => Conversation | undefined;
   getActiveConversation: () => Conversation | null;
   sendMessage: (content: string, onNewConversation?: (id: string) => void) => Promise<void>;
+  /** Send a voice recording or an image through the RAG pipeline. */
+  sendAttachment: (
+    kind: 'voice' | 'image',
+    file: Blob | File,
+    question?: string,
+    onNewConversation?: (id: string) => void
+  ) => Promise<void>;
   regenerateLast: () => Promise<void>;
   setReaction: (messageId: string, liked: boolean | null) => void;
   openCitation: (source: SourceCitation) => void;
@@ -85,10 +92,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
           return apiConv;
         });
-        // Preserve any local-only conversations (e.g., actively being streamed)
+        // Preserve local-only conversations: ones with messages (actively being
+        // streamed) and the active conversation (freshly created, still empty).
         const apiIds = new Set(apiConversations.map((c) => c.id));
         const localOnly = state.conversations.filter(
-          (c) => !apiIds.has(c.id) && c.messages.length > 0
+          (c) =>
+            !apiIds.has(c.id) &&
+            (c.messages.length > 0 || c.id === state.activeConversationId)
         );
         return { conversations: [...localOnly, ...merged], loadingConversations: false };
       });
@@ -115,9 +125,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ loadingMessages: true, errorMessages: null });
     try {
       const messages = await chatService.getMessages(conversationId);
-      // Replace chat state with retrieved history — do NOT append.
-      // If the conversation doesn't exist in state yet (race with init()),
-      // synthesise a minimal record so messages aren't silently dropped.
       set((state) => {
         const exists = state.conversations.find((c) => c.id === conversationId);
         if (!exists) {
@@ -137,6 +144,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
             loadingMessages: false,
           };
         }
+
+        // CRITICAL RACE CONDITION FIX:
+        // When a new conversation is created and the first message is sent from
+        // the Dashboard (or any page without an active conversation), sendMessage()
+        // adds user+assistant messages to the store. Meanwhile loadMessages() runs
+        // in the ChatPage useEffect and fetches messages from the API. Since the
+        // backend hasn't saved the messages yet (they're still being streamed), the
+        // API returns an empty array. If we blindly overwrite, the locally added
+        // messages vanish and the streaming updates target an empty array.
+        //
+        // Solution: if the conversation already has messages locally and the API
+        // returned nothing, trust the local state and skip the overwrite.
+        if (exists.messages.length > 0 && messages.length === 0) {
+          return { loadingMessages: false };
+        }
+
+        // Replace chat state with retrieved history — do NOT append.
         return {
           conversations: state.conversations.map((c) =>
             c.id === conversationId
@@ -146,8 +170,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
           loadingMessages: false,
         };
       });
-      // Mark as loaded so revisiting does not trigger another request
-      messagesCache.add(conversationId);
+      // Only cache if we actually loaded messages, so subsequent visits re-fetch
+      // for conversations that genuinely have nothing (e.g. brand new).
+      if (messages.length > 0) messagesCache.add(conversationId);
     } catch {
       set({ loadingMessages: false, errorMessages: 'Unable to load conversation history.' });
     }
@@ -302,6 +327,95 @@ export const useChatStore = create<ChatState>((set, get) => ({
         .getActiveConversation()
         ?.messages.find((m) => m.id === assistantMsg.id)
     );
+  },
+
+  sendAttachment: async (kind, file, question, onNewConversation) => {
+    const state = get();
+    let convId = state.activeConversationId;
+    if (!convId || convId === 'undefined') {
+      convId = await get().newConversation();
+      if (onNewConversation) onNewConversation(convId);
+    }
+
+    const userContent =
+      kind === 'voice'
+        ? '🎤 Voice query'
+        : question && question.trim()
+          ? `${question.trim()} 📎 (image attached)`
+          : '📎 Image query';
+
+    const userMsg: ChatMessage = {
+      id: uid('m'),
+      role: 'user',
+      content: userContent,
+      createdAt: new Date().toISOString(),
+    };
+    const assistantMsg: ChatMessage = {
+      id: uid('m'),
+      role: 'assistant',
+      content: '',
+      createdAt: new Date().toISOString(),
+      model: state.selectedModel,
+      streaming: true,
+      liked: null,
+    };
+
+    set((s) => ({
+      conversations: s.conversations.map((c) =>
+        c.id === convId
+          ? {
+              ...c,
+              title: c.messages.length === 0 ? (question || 'Voice query').slice(0, 40) : c.title,
+              messages: [...c.messages, userMsg, assistantMsg],
+              messageCount: c.messages.length + 2,
+              updatedAt: new Date().toISOString(),
+              companyId: c.companyId ?? s.selectedCompanyId,
+            }
+          : c
+      ),
+      streaming: true,
+    }));
+
+    try {
+      const result =
+        kind === 'voice'
+          ? await chatService.sendVoice(file as Blob, (file as File).name || 'recording.webm', state.selectedCompanyId, convId)
+          : await chatService.sendImage(file as File, question || '', state.selectedCompanyId, convId);
+
+      const finalContent = result.content || '';
+      set((s) => ({
+        conversations: s.conversations.map((c) =>
+          c.id === convId
+            ? {
+                ...c,
+                messages: c.messages.map((m) =>
+                  m.id === assistantMsg.id ? { ...m, content: finalContent, streaming: false } : m
+                ),
+              }
+            : c
+        ),
+        streaming: false,
+      }));
+    } catch (err) {
+      const detail =
+        (err as any)?.response?.data?.detail ||
+        (err as Error)?.message ||
+        'Failed to process attachment';
+      set((s) => ({
+        conversations: s.conversations.map((c) =>
+          c.id === convId
+            ? {
+                ...c,
+                messages: c.messages.map((m) =>
+                  m.id === assistantMsg.id ? { ...m, content: `⚠️ ${detail}`, streaming: false } : m
+                ),
+              }
+            : c
+        ),
+        streaming: false,
+      }));
+      throw err;
+    }
   },
 
   regenerateLast: async () => {

@@ -104,8 +104,6 @@ export function AdminUploadPage() {
     setIsUploading(true);
 
     try {
-      const formData = new FormData();
-
       // Backend expects a single file via POST /api/documents/upload
       // Upload files sequentially for proper progress tracking
       for (const f of files) {
