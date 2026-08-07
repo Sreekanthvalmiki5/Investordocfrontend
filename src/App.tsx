@@ -54,14 +54,14 @@ const requireAuth = () => {
 // Admin-only guard - checks user role
 const requireAdmin = () => {
   const user = useAuthStore.getState().user;
-  console.log(user);
+  // console.log(user);
   if (!user) throw redirect({ to: '/' });
   if (user.role !== 'admin') throw redirect({ to: '/access-denied' });
 };
 
 const guestOnly = () => {
   const user = useAuthStore.getState().user;
-  console.log(user);
+  // console.log(user);
   if (user) {
     if (user.role === 'admin') {
       throw redirect({ to: '/admin' });
