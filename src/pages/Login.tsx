@@ -42,7 +42,7 @@ export function LoginPage() {
     e.preventDefault();
     await signInWithPassword(email, password);
     const user = useAuthStore.getState().user;
-    console.log("Logged in user:", user);
+    // console.log("Logged in user:", user);
     if (user) {
       if (user.role === 'admin') {
         navigate({ to: '/admin' });
@@ -55,7 +55,7 @@ export function LoginPage() {
   const google = async () => {
     await signInWithGoogle();
     const user = useAuthStore.getState().user;
-    console.log("Logged in user (Google):", user);
+    // console.log("Logged in user (Google):", user);
     if (user) {
       if (user.role === 'admin') {
         navigate({ to: '/admin' });

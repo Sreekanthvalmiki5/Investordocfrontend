@@ -36,7 +36,7 @@ export function SignupPage() {
     }
 
     if (user) {
-      console.log(user.role);
+      // console.log(user.role);
       if (user.role === 'admin') {
         navigate({ to: '/admin' });
       } else {

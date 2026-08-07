@@ -20,7 +20,7 @@ export function ResetPasswordPage() {
 
 const token = new URLSearchParams(query).get("token") ?? "";
 
-console.log("Extracted token:", token);
+// console.log("Extracted token:", token);
 
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');

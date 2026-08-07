@@ -173,7 +173,7 @@ export const authService = {
             token: string,
             password: string,
         ): Promise<void> {
-          console.log("Sending token:", token);
+          // console.log("Sending token:", token);
 
             await httpClient.post(
                 "/api/auth/reset-password",
@@ -346,7 +346,7 @@ async createConversation(title: string): Promise<Conversation> {
     }
 
     try {
-      console.log('🚀 Sending chat request to:', `${API_URL}/api/chat`);
+      // console.log('🚀 Sending chat request to:', `${API_URL}/api/chat`);
       const response = await fetch(`${API_URL}/api/chat`, {
         method: 'POST',
         headers: {
@@ -358,7 +358,7 @@ async createConversation(title: string): Promise<Conversation> {
         body: JSON.stringify({ message: prompt, model, company_id: companyId, conversation_id: conversationId }),
       });
 
-      console.log('📡 Response status:', response.status, 'ok:', response.ok, 'hasBody:', !!response.body);
+      // // console.log('📡 Response status:', response.status, 'ok:', response.ok, 'hasBody:', !!response.body);
 
       if (!response.ok) {
         console.error('❌ Response not ok, status:', response.status);
@@ -375,10 +375,10 @@ async createConversation(title: string): Promise<Conversation> {
       }
 
       const contentType = response.headers.get('content-type') ?? '';
-      console.log('📝 Content-Type:', contentType);
+      // console.log('📝 Content-Type:', contentType);
 
       if (contentType.includes('text/event-stream')) {
-        console.log('📨 Streaming SSE response');
+        // console.log('📨 Streaming SSE response');
         // SSE streaming
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -404,10 +404,10 @@ async createConversation(title: string): Promise<Conversation> {
         }
         yield { delta: '', done: true, sources };
       } else {
-        console.log('📄 Parsing JSON response');
+        // console.log('📄 Parsing JSON response');
         // Plain JSON response — yield full text at once
         const json = await response.json();
-        console.log('✅ Parsed JSON:', JSON.stringify(json).slice(0, 200) + '...');
+        // console.log('✅ Parsed JSON:', JSON.stringify(json).slice(0, 200) + '...');
         
         // Handle OpenAI/OpenRouter response format
         let text: string = '';
@@ -415,7 +415,7 @@ async createConversation(title: string): Promise<Conversation> {
           const message = json.choices[0].message;
           // Try content first, then reasoning (for extended thinking models)
           text = message.content ?? message.reasoning ?? '';
-          console.log('✨ Extracted text from choices[0].message, length:', text.length);
+          // console.log('✨ Extracted text from choices[0].message, length:', text.length);
         } else {
           // Fallback to other formats
           text =
@@ -424,19 +424,19 @@ async createConversation(title: string): Promise<Conversation> {
             json.message ??
             json.response ??
             '';
-          console.log('⚠️ Using fallback format, text length:', text.length);
+          // console.log('⚠️ Using fallback format, text length:', text.length);
         }
         
         if (!text) {
-          console.error('❌ No text extracted from response');
-          console.error('Full response:', JSON.stringify(json));
+          // console.error('❌ No text extracted from response');
+          // console.error('Full response:', JSON.stringify(json));
         }
 
         const sources = json?.data?.sources ?? json?.sources;
         // Split into tokens preserving ALL whitespace (newlines, spaces, etc.)
         // so markdown structure is maintained during streaming.
         const tokens = text.split(/(\s+)/);
-        console.log('📊 Token count:', tokens.length);
+        // console.log('📊 Token count:', tokens.length);
         
         for (const token of tokens) {
           await new Promise((r) => setTimeout(r, 18 + Math.random() * 22));
@@ -445,8 +445,8 @@ async createConversation(title: string): Promise<Conversation> {
         yield { delta: '', done: true, sources };
       }
     } catch (error) {
-      console.error('🔴 Error in streamResponse:', error);
-      console.error('Stack:', error instanceof Error ? error.stack : '');
+      // console.error('🔴 Error in streamResponse:', error);
+      // console.error('Stack:', error instanceof Error ? error.stack : '');
       yield* _mockStream(prompt, companyId);
     }
   },

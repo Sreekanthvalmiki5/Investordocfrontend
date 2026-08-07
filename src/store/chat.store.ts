@@ -275,7 +275,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       streaming: true,
     }));
 
-    console.log('📤 Sending message, conversation:', convId);
+    // console.log('📤 Sending message, conversation:', convId);
     const stream = chatService.streamResponse(
       content,
       state.selectedModel,
@@ -289,7 +289,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       for await (const chunk of stream) {
         chunkCount++;
-        console.log(`📨 Chunk ${chunkCount}:`, chunk);
+        // console.log(`📨 Chunk ${chunkCount}:`, chunk);
         
         if (chunk.delta) {
           acc += chunk.delta;
@@ -304,10 +304,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (chunk.done) sources = chunk.sources;
       }
     } catch (err) {
-      console.error('❌ Error in stream processing:', err);
+      // console.error('❌ Error in stream processing:', err);
     }
 
-    console.log('✅ Stream completed, total chunks:', chunkCount, 'final content length:', acc.length);
+    // console.log('✅ Stream completed, total chunks:', chunkCount, 'final content length:', acc.length);
     set((s) => ({
       conversations: s.conversations.map((c) =>
         c.id === convId
@@ -321,12 +321,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       ),
       streaming: false,
     }));
-    console.log(
-      "✨ STORE MESSAGE:",
-      get()
-        .getActiveConversation()
-        ?.messages.find((m) => m.id === assistantMsg.id)
-    );
+    // console.log(
+    //   "✨ STORE MESSAGE:",
+    //   get()
+    //     .getActiveConversation()
+    //     ?.messages.find((m) => m.id === assistantMsg.id)
+    // );
   },
 
   sendAttachment: async (kind, file, question, onNewConversation) => {
