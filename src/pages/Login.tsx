@@ -1,61 +1,16 @@
-import { useState } from 'react';
-import { Link, useNavigate } from '@tanstack/react-router';
-import { Mail, Lock, Loader2, ArrowRight, MailCheck, CheckCircle2 } from 'lucide-react';
+import { useNavigate, Link } from '@tanstack/react-router';
+import { Loader2 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { AuthLayout } from '@/layouts/AuthLayout';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
-import { toast } from 'sonner';
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { signInWithPassword, signInWithGoogle, resendVerification, loading, error, clearError } = useAuthStore();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [resending, setResending] = useState(false);
-  const [resent, setResent] = useState(false);
-
-  // The backend rejects unverified email accounts with a message containing
-  // "verify your email" — surface a resend banner in that case.
-  const needsVerification = Boolean(error && error.toLowerCase().includes('verify your email'));
-
-  const resend = async () => {
-    if (!email.trim()) {
-      toast.error('Enter your email address first.');
-      return;
-    }
-    setResending(true);
-    setResent(false);
-    try {
-      await resendVerification(email);
-      setResent(true);
-    } catch {
-      toast.error('Could not resend the verification email. Please try again.');
-    } finally {
-      setResending(false);
-    }
-  };
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await signInWithPassword(email, password);
-    const user = useAuthStore.getState().user;
-    // console.log("Logged in user:", user);
-    if (user) {
-      if (user.role === 'admin') {
-        navigate({ to: '/admin' });
-      } else {
-        navigate({ to: '/dashboard' });
-      }
-    }
-  };
+  const { signInWithGoogle, loading } = useAuthStore();
 
   const google = async () => {
     await signInWithGoogle();
     const user = useAuthStore.getState().user;
-    // console.log("Logged in user (Google):", user);
     if (user) {
       if (user.role === 'admin') {
         navigate({ to: '/admin' });
@@ -70,7 +25,7 @@ export function LoginPage() {
       <div className="space-y-6">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight">Welcome back</h2>
-          <p className="text-sm text-muted-foreground mt-1">Sign in to your InvestorDocs AI workspace.</p>
+          <p className="text-sm text-muted-foreground mt-1">Sign in with Google to continue.</p>
         </div>
 
         <Button
@@ -80,87 +35,9 @@ export function LoginPage() {
           disabled={loading}
           className="w-full h-11 gap-2.5 font-medium"
         >
-          <GoogleIcon />
+          {loading ? <Loader2 className="size-4 animate-spin" /> : <GoogleIcon />}
           Continue with Google
         </Button>
-
-        <div className="flex items-center gap-3">
-          <Separator className="flex-1" />
-          <span className="text-[11px] uppercase text-muted-foreground/70">or</span>
-          <Separator className="flex-1" />
-        </div>
-
-        <form onSubmit={submit} className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="email">Email</Label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-              <Input
-                id="email"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => { setEmail(e.target.value); clearError(); }}
-                placeholder="you@firm.com"
-                className="pl-9 h-11"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="password">Password</Label>
-              <Link to="/forgot-password" className="text-xs text-primary hover:underline">
-                Forgot?
-              </Link>
-            </div>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-              <Input
-                id="password"
-                type="password"
-                required
-                value={password}
-                onChange={(e) => { setPassword(e.target.value); clearError(); }}
-                placeholder="••••••••"
-                className="pl-9 h-11"
-              />
-            </div>
-          </div>
-
-          {needsVerification && (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 space-y-2.5">
-              <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
-                Please verify your email address to sign in. Check your inbox for the
-                verification link (valid for 24 hours) or request a new one.
-              </p>
-              {resent ? (
-                <p className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 className="size-3.5" /> Verification email sent — check your inbox.
-                </p>
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5 text-amber-700 dark:text-amber-300 border-amber-500/30 hover:bg-amber-500/10"
-                  onClick={resend}
-                  disabled={resending || loading}
-                >
-                  {resending ? <Loader2 className="size-3.5 animate-spin" /> : <MailCheck className="size-3.5" />}
-                  Resend verification email
-                </Button>
-              )}
-            </div>
-          )}
-
-          {error && !needsVerification && <p className="text-xs text-destructive">{error}</p>}
-
-          <Button type="submit" disabled={loading} className="w-full h-11 gap-2">
-            {loading ? <Loader2 className="size-4 animate-spin" /> : <ArrowRight className="size-4" />}
-            Continue with email
-          </Button>
-        </form>
 
         <p className="text-xs text-muted-foreground text-center">
           New to InvestorDocs AI?{' '}
@@ -170,6 +47,7 @@ export function LoginPage() {
     </AuthLayout>
   );
 }
+
 
 function GoogleIcon() {
   return (
